@@ -137,132 +137,130 @@ class ChromaDB(VectorStore):
         return filtered_documents
 
     def _passes_all_rules(self, doc_metadata: Dict, student: StudentQueryRequest) -> bool:
-        """
-        Check if document passes ALL filtering rules
-        Returns True only if ALL applicable rules pass
-        """
+        """Check if document passes ALL filtering rules with detailed logging"""
+        
+        print(f"\n=== FILTERING DOCUMENT ===")
+        print(f"Document: {doc_metadata.get('document_name', 'Unknown')}")
+        print(f"Document Type: {doc_metadata.get('type', 'Unknown')}")
         
         # Rule 1: Batch matching
         if not self._check_batch_rule(doc_metadata, student):
+            print(f"❌ Document REJECTED by Batch Rule")
             return False
         
-        # Rule 2: Faculty matching
+        # Rule 2: Faculty matching  
         if not self._check_faculty_rule(doc_metadata, student):
+            print(f"❌ Document REJECTED by Faculty Rule")
             return False
         
         # Rule 3: Department matching
         if not self._check_department_rule(doc_metadata, student):
+            print(f"❌ Document REJECTED by Department Rule")
             return False
         
         # Rule 4: Degree program matching
         if not self._check_degree_program_rule(doc_metadata, student):
+            print(f"❌ Document REJECTED by Degree Program Rule")
             return False
         
-        # Rule 5: Specialization track matching
-        if not self._check_specialization_rule(doc_metadata, student):
-            return False
-        
-        # Rule 6: Year matching
-        if not self._check_year_rule(doc_metadata, student):
-            return False
-        
-        # Document type-specific rules
-        doc_type = doc_metadata.get('type', '').lower()
-        
-        if doc_type == 'academic':
-            # Rule 7: Course relevance for academic documents
-            if not self._check_course_relevance_rule(doc_metadata, student):
-                return False
-            
-            # Rule 8: Semester matching for academic documents
-            if not self._check_semester_rule(doc_metadata, student):
-                return False
-        
-        elif doc_type == 'non-academic':
-            # Rule 9: Validity check for non-academic documents
-            if not self._check_validity_rule(doc_metadata):
-                return False
-        
+        print(f"✅ Document PASSED all filtering rules")
         return True
 
-    def _check_batch_rule(self, doc_metadata: Dict, student: StudentQueryRequest) -> bool:
-        """Rule 1: Batch matching"""
-        doc_batches = doc_metadata.get('batches_affecting', '')
-        if not doc_batches:
-            return True  # No batch restriction
-        
-        # Split comma-separated string to list
-        batch_list = [b.strip() for b in doc_batches.split(',') if b.strip()]
-        if not batch_list:
-            return True  # Empty list means applicable to all
-        
-        return student.batch in batch_list
-
     def _check_faculty_rule(self, doc_metadata: Dict, student: StudentQueryRequest) -> bool:
-        """Rule 2: Faculty matching - Handle JSON strings"""
-        doc_faculties = doc_metadata.get('faculties_affecting', '')
+        """Rule 2: Faculty matching - Handle 'all' case"""
+        doc_faculties_str = doc_metadata.get('faculties_affecting', '')
+        
+        print(f"Faculty Rule Check:")
+        print(f"  Document faculties: '{doc_faculties_str}'")
+        print(f"  Student faculty: '{student.faculty}'")
+        
+        # If document applies to all faculties
+        if doc_faculties_str == "all" or not doc_faculties_str:
+            print(f"  Result: PASS (document applies to all faculties)")
+            return True
+        
+        # Parse comma-separated faculties
+        doc_faculties = [f.strip() for f in doc_faculties_str.split(',') if f.strip()]
+        
         if not doc_faculties:
+            print(f"  Result: PASS (no faculty restrictions)")
             return True
         
-        # Handle JSON string format: ["Science"] -> Science
-        try:
-            import json
-            if doc_faculties.startswith('["') and doc_faculties.endswith('"]'):
-                faculty_list = json.loads(doc_faculties)
-            else:
-                faculty_list = [f.strip() for f in doc_faculties.split(',') if f.strip()]
-        except:
-            faculty_list = [f.strip() for f in doc_faculties.split(',') if f.strip()]
-        
-        if not faculty_list:
-            return True
-        
-        print(f"Faculty check: Student={student.faculty}, Doc={faculty_list}")
-        return student.faculty in faculty_list
+        result = student.faculty in doc_faculties
+        print(f"  Result: {'PASS' if result else 'FAIL'}")
+        return result
 
     def _check_department_rule(self, doc_metadata: Dict, student: StudentQueryRequest) -> bool:
-        """Rule 3: Department matching - Handle JSON strings"""
-        doc_departments = doc_metadata.get('departments_affecting', '')
+        """Rule 3: Department matching - Handle 'all' case"""
+        doc_departments_str = doc_metadata.get('departments_affecting', '')
+        
+        print(f"Department Rule Check:")
+        print(f"  Document departments: '{doc_departments_str}'")
+        print(f"  Student department: '{student.department}'")
+        
+        # If document applies to all departments
+        if doc_departments_str == "all" or not doc_departments_str:
+            print(f"  Result: PASS (document applies to all departments)")
+            return True
+        
+        # Parse comma-separated departments
+        doc_departments = [d.strip() for d in doc_departments_str.split(',') if d.strip()]
+        
         if not doc_departments:
+            print(f"  Result: PASS (no department restrictions)")
             return True
         
-        # Handle JSON string format: ["IM"] -> IM
-        try:
-            import json
-            if doc_departments.startswith('["') and doc_departments.endswith('"]'):
-                dept_list = json.loads(doc_departments)
-            else:
-                dept_list = [d.strip() for d in doc_departments.split(',') if d.strip()]
-        except:
-            dept_list = [d.strip() for d in doc_departments.split(',') if d.strip()]
-        
-        if not dept_list:
-            return True
-        
-        print(f"Department check: Student={student.department}, Doc={dept_list}")
-        return student.department in dept_list
+        result = student.department in doc_departments
+        print(f"  Result: {'PASS' if result else 'FAIL'}")
+        return result
 
     def _check_degree_program_rule(self, doc_metadata: Dict, student: StudentQueryRequest) -> bool:
-        """Rule 4: Degree program matching - Handle JSON strings"""
-        doc_programs = doc_metadata.get('degree_programs', '')
+        """Rule 4: Degree program matching - Handle 'all' case"""
+        doc_programs_str = doc_metadata.get('degree_programs', '')
+        
+        print(f"Degree Program Rule Check:")
+        print(f"  Document degree programs: '{doc_programs_str}'")
+        print(f"  Student degree program: '{student.degree_program}'")
+        
+        # If document applies to all degree programs
+        if doc_programs_str == "all" or not doc_programs_str:
+            print(f"  Result: PASS (document applies to all degree programs)")
+            return True
+        
+        # Parse comma-separated programs
+        doc_programs = [p.strip() for p in doc_programs_str.split(',') if p.strip()]
+        
         if not doc_programs:
+            print(f"  Result: PASS (no degree program restrictions)")
             return True
         
-        # Handle JSON string format: ["Bsc(Hons) IT","Bsc(Hons) MIT"] -> list
-        try:
-            import json
-            if doc_programs.startswith('["') and doc_programs.endswith('"]'):
-                program_list = json.loads(doc_programs)
-            else:
-                program_list = [p.strip() for p in doc_programs.split(',') if p.strip()]
-        except:
-            program_list = [p.strip() for p in doc_programs.split(',') if p.strip()]
+        result = student.degree_program in doc_programs
+        print(f"  Result: {'PASS' if result else 'FAIL'}")
+        return result
+
+    def _check_batch_rule(self, doc_metadata: Dict, student: StudentQueryRequest) -> bool:
+        """Rule 1: Batch matching - Handle 'all' case"""
+        doc_batches_str = doc_metadata.get('batches_affecting', '')
         
-        if not program_list:
+        print(f"Batch Rule Check:")
+        print(f"  Document batches: '{doc_batches_str}'")
+        print(f"  Student batch: '{student.batch}'")
+        
+        # If document applies to all batches
+        if doc_batches_str == "all" or not doc_batches_str:
+            print(f"  Result: PASS (document applies to all batches)")
             return True
         
-        print(f"Degree program check: Student={student.degree_program}, Doc={program_list}")
-        return student.degree_program in program_list
+        # Parse comma-separated batches
+        doc_batches = [b.strip() for b in doc_batches_str.split(',') if b.strip()]
+        
+        if not doc_batches:
+            print(f"  Result: PASS (no batch restrictions)")
+            return True
+        
+        result = student.batch in doc_batches
+        print(f"  Result: {'PASS' if result else 'FAIL'}")
+        return result
 
     def _check_course_relevance_rule(self, doc_metadata: Dict, student: StudentQueryRequest) -> bool:
         """Rule 7: Course relevance - Handle spaces in course codes"""

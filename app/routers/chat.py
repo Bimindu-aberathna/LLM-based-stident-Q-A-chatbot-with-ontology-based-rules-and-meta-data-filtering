@@ -94,6 +94,7 @@ DECISION RULES:
    - University policies, procedures, administrative matters
    - Student services, academic programs
    - Research topics related to their field of study
+   - Any university student information needs
    - Questions about course content, syllabus, curriculum
    
 2. "invalid" - Only if query is clearly:
