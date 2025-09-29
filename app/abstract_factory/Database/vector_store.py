@@ -10,6 +10,4 @@ class VectorStore(ABC):
                      metadatas: Optional[List[Dict]] = None) -> None:
         pass
 
-    @abstractmethod
-    def retrieve_similar(self, query_vector: List[float], top_k: int = 5) -> List[str]:
-        pass    
+     
