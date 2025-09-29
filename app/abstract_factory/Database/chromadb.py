@@ -31,18 +31,7 @@ class ChromaDB(VectorStore):
             metadatas=metadatas
         )
 
-    def retrieve_similar(self, query_vector: List[float], studentMetadata: StudentQueryRequest, top_k: int = 5) -> List[str]:
-        try:
-            results = self.collection.query(
-                query_embeddings=[query_vector],
-                n_results=top_k
-            )
-            # Return the actual text chunks, not embeddings
-            return results['documents'][0] if results['documents'] else []
-        except Exception as e:
-            print(f"Error retrieving similar chunks: {e}")
-            return []
-    
+  
     def chroma_connect(self):
         try:
             
