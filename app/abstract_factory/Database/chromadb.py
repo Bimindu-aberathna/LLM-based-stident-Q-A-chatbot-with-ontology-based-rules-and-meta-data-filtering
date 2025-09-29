@@ -72,19 +72,16 @@ class ChromaDB(VectorStore):
     course_codes: list[str] = []
     courses_done: list[str] = []
     """
-    def retrieve_similar_with_metadata(self, query_vector: List[float], studentMetadata: StudentQueryRequest, top_k: int = 5, similarity_threshold: float = 0.7) -> List[str]:
+    def retrieve_similar_with_metadata(self, query_vector: List[float], studentMetadata: StudentQueryRequest, top_k: int = 5, similarity_threshold: float = 0.7) -> tuple[List[str], List[str]]:
         """
         Retrieve similar chunks with rule-based metadata filtering AND similarity threshold
-        
-        Args:
-            similarity_threshold: Minimum cosine similarity score (0.0 to 1.0)
-                                0.7 = Good relevance, 0.8 = High relevance, 0.9 = Very high relevance
+        Returns: (academic_chunks, non_academic_chunks) - Two separate lists
         """
         try:
             # Debug: Check collection contents
             collection_count = self.collection.count()
             if collection_count == 0:
-                return []
+                return [], []
             sample_results = self.collection.get(limit=3, include=['documents', 'metadatas'])
             print(f"Sample metadata: {sample_results['metadatas'][:2] if sample_results['metadatas'] else 'None'}")
             
@@ -100,7 +97,7 @@ class ChromaDB(VectorStore):
             
             if not results['documents'] or len(results['documents']) == 0:
                 print("No documents returned from similarity search")
-                return []
+                return [], []
             
             print(f"Raw query results: {len(results['documents'][0])} documents found")
             
@@ -110,19 +107,19 @@ class ChromaDB(VectorStore):
             
             if not similarity_filtered_results['documents'] or len(similarity_filtered_results['documents']) == 0:
                 print("No documents passed similarity threshold")
-                return []
+                return [], []
             
             # Then apply rule-based filtering
-            rule_filtered_results = self._apply_rule_based_filters(similarity_filtered_results, studentMetadata)
-            print(f"After rule-based filtering: {len(rule_filtered_results)} documents remain")
+            academic_chunks, non_academic_chunks = self._apply_rule_based_filters(similarity_filtered_results, studentMetadata)
             
-            # Return top_k results after all filtering
-            return rule_filtered_results[:top_k]
+            print(f"After rule-based filtering: Academic: {len(academic_chunks)}, Non-Academic: {len(non_academic_chunks)}")
             
+            # Return both lists (truncated to top_k each)
+            return academic_chunks[:10], non_academic_chunks[:10]
         except Exception as e:
             logging.error(f"Error in retrieve_similar_with_metadata: {str(e)}")
             print(f"Exception in retrieve_similar_with_metadata: {str(e)}")
-            return []
+            return [], []
 
     def _apply_similarity_threshold(self, results: Dict, threshold: float) -> Dict:
         """
@@ -161,12 +158,13 @@ class ChromaDB(VectorStore):
             'distances': [filtered_distances] if filtered_distances else []
         }
 
-    def _apply_rule_based_filters(self, results: Dict, studentMetadata: StudentQueryRequest) -> List[str]:
+    def _apply_rule_based_filters(self, results: Dict, studentMetadata: StudentQueryRequest) -> tuple[List[str], List[str]]:
         """
         Apply strict rule-based filtering with hierarchical ranking for non-academic documents
+        Returns: (academic_chunks_list, non_academic_chunks_list)
         """
         if not results['documents'] or len(results['documents']) == 0:
-            return []
+            return [], []
         
         documents = results['documents'][0]
         metadatas = results['metadatas'][0] if results['metadatas'] else []
@@ -198,21 +196,119 @@ class ChromaDB(VectorStore):
         else:
             ranked_non_academic = []
         
-        # Combine results: Academic chunks (by similarity) + Ranked non-academic chunks
-        final_chunks = []
-        
-        # Add academic chunks (sorted by similarity)
+        # Process academic chunks with neighbors (sorted by similarity)
+        final_academic_list = []
         academic_chunks.sort(key=lambda x: x['similarity_score'], reverse=True)
         for chunk in academic_chunks:
-            final_chunks.append(chunk['text'])
+            print(f"\n--- Processing Academic Chunk ---")
+            print(f"Original chunk preview: {chunk['text'][:100]}...")
+            
+            chunk_with_neighbors = self.retrieve_neighbor_chunks_for_a_chunk(
+                chunk=chunk['text'],
+                chunk_type="academic",
+                neighbor_count=2  # Only 2 neighbors on each side
+            )
+            
+            if chunk_with_neighbors:
+                print(f"Found {len(chunk_with_neighbors)} chunks (including neighbors)")
+                for neighbor_chunk in chunk_with_neighbors:
+                    final_academic_list.append(neighbor_chunk['text'])
+            else:
+                print(f"No neighbors found for academic chunk, adding original")
+                final_academic_list.append(chunk['text'])
         
-        # Add ranked non-academic chunks
+        # Process non-academic chunks with neighbors (already ranked)
+        final_non_academic_list = []
         for chunk in ranked_non_academic:
-            chunk['text'] = chunk['text']+ f" RANKING SCORE: {chunk['total_score']:.1f}"
-            final_chunks.append(chunk['text'])
-            print(final_chunks)
+            print(f"\n--- Processing Non-Academic Chunk ---")
+            print(f"Original chunk preview: {chunk['text'][:100]}...")
+            print(f"Chunk score: {chunk['total_score']}")
+            
+            chunk_with_neighbors = self.retrieve_neighbor_chunks_for_a_chunk(
+                chunk=chunk['text'],
+                chunk_type="non-academic",
+                chunk_score=chunk['total_score'],
+                neighbor_count=2  # Only 2 neighbors on each side
+            )
+            
+            if chunk_with_neighbors:
+                print(f"Found {len(chunk_with_neighbors)} chunks (including neighbors)")
+                for neighbor_chunk in chunk_with_neighbors:
+                    if neighbor_chunk['is_original_chunk']:
+                        annotated_chunk = f"{neighbor_chunk['text']} [ORIGINAL-SCORE: {chunk['total_score']:.1f}]"
+                    else:
+                        annotated_chunk = f"{neighbor_chunk['text']} [NEIGHBOR-SCORE: {chunk['total_score']*0.9:.1f}]"
+                    final_non_academic_list.append(annotated_chunk)
+            else:
+                print(f"No neighbors found for non-academic chunk, adding original")
+                annotated_chunk = f"{chunk['text']} [SCORE: {chunk['total_score']:.1f}]"
+                final_non_academic_list.append(annotated_chunk)
         
-        return final_chunks
+        print(f"\n=== BEFORE DEDUPLICATION ===")
+        print(f"Academic chunks: {len(final_academic_list)}")
+        print(f"Non-academic chunks: {len(final_non_academic_list)}")
+        
+        # ==================== DEDUPLICATION ====================
+        
+        # Deduplicate academic chunks while preserving order
+        seen_academic = set()
+        deduplicated_academic = []
+        for chunk in final_academic_list:
+            # Create a shorter key for comparison (first 100 characters)
+            chunk_key = chunk[:100].strip()
+            if chunk_key not in seen_academic:
+                seen_academic.add(chunk_key)
+                deduplicated_academic.append(chunk)
+            else:
+                print(f"Removed duplicate academic chunk: {chunk[:50]}...")
+        
+        # Deduplicate non-academic chunks while preserving order and scores
+        seen_non_academic = set()
+        deduplicated_non_academic = []
+        for chunk in final_non_academic_list:
+            # Extract text without score annotation for comparison
+            if '[SCORE:' in chunk or '[ORIGINAL-SCORE:' in chunk or '[NEIGHBOR-SCORE:' in chunk:
+                # Find the last occurrence of '[' to split text from score
+                last_bracket = chunk.rfind('[')
+                chunk_text = chunk[:last_bracket].strip() if last_bracket > 0 else chunk
+            else:
+                chunk_text = chunk
+            
+            # Create a shorter key for comparison
+            chunk_key = chunk_text[:100].strip()
+            if chunk_key not in seen_non_academic:
+                seen_non_academic.add(chunk_key)
+                deduplicated_non_academic.append(chunk)
+            else:
+                print(f"Removed duplicate non-academic chunk: {chunk[:50]}...")
+        
+        print(f"\n=== AFTER DEDUPLICATION ===")
+        print(f"Academic chunks: {len(deduplicated_academic)} (removed {len(final_academic_list) - len(deduplicated_academic)} duplicates)")
+        print(f"Non-academic chunks: {len(deduplicated_non_academic)} (removed {len(final_non_academic_list) - len(deduplicated_non_academic)} duplicates)")
+        
+        # Show final chunk previews with lengths
+        for i, chunk in enumerate(deduplicated_academic[:3], 1):  # Show first 3
+            print(f"Academic {i} (len:{len(chunk)}): {chunk[:100]}...")
+            
+        for i, chunk in enumerate(deduplicated_non_academic[:3], 1):  # Show first 3
+            print(f"Non-Academic {i} (len:{len(chunk)}): {chunk[:100]}...")
+        
+        # Calculate total token estimate (rough: 4 chars = 1 token)
+        total_academic_tokens = sum(len(chunk) // 4 for chunk in deduplicated_academic)
+        total_non_academic_tokens = sum(len(chunk) // 4 for chunk in deduplicated_non_academic)
+        total_tokens = total_academic_tokens + total_non_academic_tokens
+        
+        print(f"\n=== TOKEN USAGE ESTIMATE ===")
+        print(f"Academic tokens: ~{total_academic_tokens}")
+        print(f"Non-academic tokens: ~{total_non_academic_tokens}")
+        print(f"Total estimated tokens: ~{total_tokens}")
+        
+        if total_tokens > 6000:
+            print(f"⚠️  WARNING: Estimated tokens ({total_tokens}) may exceed context window!")
+        
+        print(f"Final results - Academic: {len(deduplicated_academic)} chunks, Non-Academic: {len(deduplicated_non_academic)} chunks")
+        
+        return deduplicated_academic, deduplicated_non_academic
 
     def _passes_all_rules(self, doc_metadata: Dict, student: StudentQueryRequest) -> bool:
         """Check if document passes ALL filtering rules based on document type"""
@@ -919,3 +1015,141 @@ class ChromaDB(VectorStore):
             }
         except Exception as e:
             return {"error": str(e)}
+        
+    def retrieve_neighbor_chunks_for_a_chunk(self, chunk: str, chunk_type: str = 'academic', chunk_score: float = 0, neighbor_count: int = 2) -> List[Dict]:
+        """
+        Retrieve neighboring chunks for a single given chunk to provide better context
+        
+        Args:
+            chunk: Single chunk text to find neighbors for
+            chunk_type: 'academic' or 'non-academic' 
+            chunk_score: Score for non-academic chunks (ignored for academic)
+            neighbor_count: Number of neighbors to retrieve on each side of target chunk
+        
+        Returns:
+            List of chunk dictionaries with text, metadata, and scores in document order
+            Includes the original chunk + its neighbors
+        """
+        try:
+            if not chunk:
+                return []
+            
+            print(f"\n=== NEIGHBOR CHUNK RETRIEVAL ===")
+            print(f"Processing single {chunk_type} chunk")
+            print(f"Neighbor count: {neighbor_count} on each side")
+            print(f"Passed chunk (length: {len(chunk)}):")
+            print(f"'{chunk[:200]}...' " + ("(truncated)" if len(chunk) > 200 else ""))
+            
+            # Get all documents from collection with metadata
+            all_results = self.collection.get(
+                include=['documents', 'metadatas']
+            )
+            
+            if not all_results['documents']:
+                return []
+            
+            all_documents = all_results['documents']
+            all_metadatas = all_results['metadatas']
+            
+            # Find the target chunk in the collection
+            target_metadata = None
+            target_index = None
+            doc_name = None
+            
+            for doc, metadata in zip(all_documents, all_metadatas):
+                if doc == chunk:  # Found the target chunk
+                    target_metadata = metadata
+                    target_index = metadata.get('chunk_index', 0)
+                    doc_name = metadata.get('document_name', 'Unknown')
+                    break
+            
+            if target_metadata is None:
+                print(f"❌ Target chunk not found in collection")
+                print(f"Collection has {len(all_documents)} documents")
+                print(f"Target chunk length: {len(chunk)}")
+                print(f"Searching for exact matches...")
+                
+                # Try partial matching as fallback
+                for i, (doc, metadata) in enumerate(zip(all_documents[:5], all_metadatas[:5])):
+                    print(f"  Doc {i}: {len(doc)} chars, starts with: '{doc[:50]}...'")
+                    if chunk[:100] in doc or doc[:100] in chunk:
+                        print(f"  ✓ Found partial match with doc {i}")
+                        target_metadata = metadata
+                        target_index = metadata.get('chunk_index', 0)
+                        doc_name = metadata.get('document_name', 'Unknown')
+                        break
+                
+                if target_metadata is None:
+                    print(f"❌ No matches found - returning empty list")
+                    return []
+            
+            print(f"Found target chunk in document: {doc_name}, index: {target_index}")
+            
+            # Group all chunks from the same document by chunk_index
+            document_chunks = {}
+            for doc, metadata in zip(all_documents, all_metadatas):
+                if metadata.get('document_name') == doc_name:
+                    chunk_index = metadata.get('chunk_index', 0)
+                    document_chunks[chunk_index] = {
+                        'text': doc,
+                        'metadata': metadata,
+                        'chunk_index': chunk_index
+                    }
+            
+            # Calculate neighbor range
+            max_index = max(document_chunks.keys()) if document_chunks else 0
+            start_index = max(0, target_index - neighbor_count)
+            end_index = min(max_index, target_index + neighbor_count)
+            
+            print(f"Retrieving chunks from index {start_index} to {end_index} (max: {max_index})")
+            
+            # Collect chunks in document order
+            result_chunks = []
+            for chunk_idx in range(start_index, end_index + 1):
+                if chunk_idx in document_chunks:
+                    chunk_data = document_chunks[chunk_idx]
+                    chunk_text = chunk_data['text']
+                    
+                    # Create result chunk with appropriate scoring
+                    result_chunk = {
+                        'text': chunk_text,
+                        'metadata': chunk_data['metadata'],
+                        'chunk_index': chunk_idx,
+                        'document_name': doc_name,
+                        'is_original_chunk': chunk_text == chunk  # True only for the target chunk
+                    }
+                    
+                    # Add scoring based on chunk type
+                    if chunk_type.lower() == 'non-academic':
+                        if chunk_text == chunk:
+                            # Original chunk gets the provided score
+                            result_chunk['total_score'] = chunk_score
+                            result_chunk['hierarchical_score'] = max(0, chunk_score - 15)  # Assume freshness ~15
+                            result_chunk['freshness_score'] = min(15, chunk_score)
+                        else:
+                            # Neighbors get slightly reduced score
+                            result_chunk['total_score'] = chunk_score * 0.9
+                            result_chunk['hierarchical_score'] = max(0, chunk_score - 15) * 0.9
+                            result_chunk['freshness_score'] = min(15, chunk_score) * 0.9
+                    else:
+                        # Academic chunks don't have hierarchical scores
+                        result_chunk['similarity_based'] = True
+                    
+                    result_chunks.append(result_chunk)
+            
+            print(f"Retrieved {len(result_chunks)} chunks (including neighbors)")
+            print(f"Chunk indices: {[chunk['chunk_index'] for chunk in result_chunks]}")
+            
+            print(f"\n=== NEIGHBOR CHUNKS RETRIEVED ===")
+            for i, result_chunk in enumerate(result_chunks):
+                chunk_preview = result_chunk['text'][:100] + ("..." if len(result_chunk['text']) > 100 else "")
+                is_original = "ORIGINAL" if result_chunk['is_original_chunk'] else "NEIGHBOR"
+                print(f"  {i+1}. [{is_original}] Index {result_chunk['chunk_index']}: '{chunk_preview}'")
+            
+            return result_chunks
+            
+        except Exception as e:
+            print(f"Error in retrieve_neighbor_chunks_for_a_chunk: {e}")
+            import traceback
+            traceback.print_exc()
+            return []

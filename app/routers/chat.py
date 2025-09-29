@@ -238,18 +238,41 @@ Respond in JSON format:
                         message="Error generating query embeddings."
                     )
                 dbInstance = ChromaDB()
-                results = dbInstance.retrieve_similar_with_metadata(
+                academic_chunks, non_academic_chunks = dbInstance.retrieve_similar_with_metadata(
                     query_embedding, 
                     request, 
                     top_k=5,
-                    similarity_threshold=0.3  # Research-grade similarity threshold
+                    similarity_threshold=0.3
                 )
-                print(f"Retrieved {len(results) if results else 0} documents")  # Debug print
-                
+
+                print(f"Retrieved - Academic: {len(academic_chunks)}, Non-Academic: {len(non_academic_chunks)}")
+
+                # Now you can pass them separately to LLM
+                if academic_chunks or non_academic_chunks:
+                    # Create separate contexts
+                    academic_context = "\n\n=== ACADEMIC CONTENT ===\n" + "\n\n".join(academic_chunks) if academic_chunks else ""
+                    non_academic_context = "\n\n=== NON-ACADEMIC CONTENT ===\n" + "\n\n".join(non_academic_chunks) if non_academic_chunks else ""
+                    
+                    # Combine for LLM or use separately
+                    combined_context = academic_context + non_academic_context
+                    
+                    # Or handle them separately in your prompt
+                    response_prompt = f"""Based on the following documents, answer the user's query: "{request.message}"
+
+                    ACADEMIC DOCUMENTS:
+                    {academic_context if academic_context else "No relevant academic documents found."}
+
+                    NON-ACADEMIC DOCUMENTS (with ranking scores):
+                    {non_academic_context if non_academic_context else "No relevant non-academic documents found."}
+
+                    Provide a helpful, accurate response based on the information above."""
+                    print("///////////////////////////////////////////////////////////////////////////////////////////////")
+                    print(response_prompt)
+                    print("///////////////////////////////////////////////////////////////////////////////////////////////")                
                 # Format results for response
-                if results:
-                    context_docs = "\n\n".join(results)
-                    answer_message = f"Found {len(results)} relevant documents based on your query:\n\n{context_docs[:1500]}..."
+                if academic_chunks or non_academic_chunks:
+                    context_docs = academic_context + non_academic_context
+                    answer_message = f"Found {len(academic_chunks)} academic and {len(non_academic_chunks)} non-academic documents based on your query:\n\n{context_docs[:1500]}..."
                 else:
                     answer_message = "No relevant documents found for your query. The database might be empty or no documents match your criteria."
                 
