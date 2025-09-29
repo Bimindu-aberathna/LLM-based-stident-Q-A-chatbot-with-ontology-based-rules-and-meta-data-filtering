@@ -1,7 +1,6 @@
 import json
 from fastapi import APIRouter, HTTPException
 from app.abstract_factory.Database.chromadb import ChromaDB
-from app.abstract_factory.Database.chromadb import ChromaDB
 from app.abstract_factory.Embedder.open_ai_embedder import OpenAIEmbedder
 from app.models.chat import ChatRequest, ChatResponse, GeneralKnowledgeResponse, GeneralKnowledgeRequest, StudentQueryRequest, TstStudentQueryResponse, IncompleteQueryResponse
 import os
@@ -87,6 +86,9 @@ USER PROFILE:
 - Current Year: {request.current_year}
 - Specialization: {request.specialization}
 - Courses Completed: {request.courses_done}
+- Course Codes: {request.course_codes}
+**Courses done & Course codes are in order. Course Code Structure: "INTE 12523", means 1: first year 2: second semester, 3: nummber of credits
+
 
 DECISION RULES:
 1. "success" - If query is about:
@@ -104,7 +106,7 @@ DECISION RULES:
    
 3. "incomplete" - If query is too vague and needs clarification
 
-For "success" cases, rewrite the query to be more specific and searchable, adding context from the user's academic profile when relevant.
+For "success" cases, rewrite the query to be more specific and searchable, adding context from the user's academic profile depending on the user's question or request. Try to increse the cosine similary for chunks.
 
 USER QUERY: "{request.message}"
 
@@ -113,6 +115,59 @@ Respond in JSON format:
   "status": "success" | "invalid" | "incomplete",
   "rewritten_query": "detailed rewritten query for document search"
 }}"""
+
+#     prompt = f"""You are an AI assistant for University of Kelaniya's academic and administrative support system.
+# Decide query status and (if success) produce a HIGH-RECALL rewritten_query optimized for vector similarity.
+
+# USER PROFILE
+# Batch: {request.batch}
+# Department: {request.department}
+# Degree Program: {request.degree_program}
+# Faculty: {request.faculty}
+# Current Year: {request.current_year}
+# Current Semester: {request.current_sem}
+# Specialization: {request.specialization}
+# Course Codes: {request.course_codes}
+
+# STATUS RULES
+# success: University academic / administrative / policy / timetable / exam / lecture / coursework / research / service related info needs or any information needs.
+# invalid: Purely personal, entertainment content.
+# incomplete: Too vague (e.g. 'tell me more', 'help', '??', or missing object like 'When is it?' after no prior context).
+
+# REWRITING GOAL (only when status=success)
+# Produce a single flat search string (no sentences) that:
+# 1. Preserves original intent terms.
+# 2. Adds high-value synonyms & morphological variants.
+# 3. Normalizes domain phrases (exam → examination, timetable → schedule).
+# 4. Expands temporal references (e.g. 'December' -> 'December Dec 2025 2024' if month given and year absent; use current/next academic year logic).
+# 5. Adds ONLY relevant user context tokens (faculty, department, degree program, year, semester, batch) when they sharpen the search.
+# 6. Include course code(s) ONLY if question clearly refers to a specific course (explicit code present OR mentions 'this course', 'INTE', etc.).
+# 7. If dress code / attire query → add: attire dress code clothing guidelines presentation formal policy.
+# 8. If exam timetable / schedule query → add: exam examination timetable schedule assessment dates times venue paper.
+# 9. If result/publication query → add: results grades publication release.
+# 10. If assignment / submission query → add: assignment submission deadline due date coursework.
+# 11. If policy query → add: policy regulation procedure requirement guideline.
+# 12. Remove stop/filler words. Max ~65 tokens.
+
+# DO NOT
+# - Invent data.
+# - Add hallucinated course codes.
+# - Use punctuation beyond spaces (except keep exact course codes).
+# - Return anything except strict JSON.
+
+# EXAMPLES
+# User: "december exam timetable"
+# Rewritten: "december dec 2025 examination exam timetable schedule assessment dates times exam timetable faculty {request.faculty} department {request.department} batch {request.batch}"
+# User: "What is the presentation dress code?"
+# Rewritten: "presentation dress code attire clothing formal guidelines policy university faculty {request.faculty} department {request.department}"
+
+# USER QUERY: "{request.message}"
+
+# Respond ONLY in JSON:
+# {{
+#   "status": "success" | "invalid" | "incomplete",
+#   "rewritten_query": "expanded high recall search query (empty string if status != success)"
+# }}"""
 
     model = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
     client = OpenAI(api_key=api_key)
@@ -164,26 +219,31 @@ Respond in JSON format:
         elif status == "success":
             try:
                 # Embed the rewritten query and retrieve relevant documents from ChromaDB
-                embedder = OpenAIEmbedder()
-                query_embedding = ""
                 try:
                     embedder = OpenAIEmbedder()
-                    query_embedding = await embedder.embed_query(rewritten_query)
-                    print(f"Successfully embedded query with {len(query_embedding)} dimensions")
-                except Exception as embed_error:
-                    print(f"Embedding error: {embed_error}")
+                    query_embedding = embedder.embed_query(rewritten_query)  # Remove await - it's likely sync
                     
-                    try:
-                        query_embedding = embedder.embed_query(rewritten_query)
-                        print(f"Embedded with sync call: {len(query_embedding)} dimensions")
+                    if not query_embedding or len(query_embedding) == 0:
+                        raise ValueError("Embedding returned empty vector")
                         
-                    except Exception as sync_error:
-                        print(f"Sync embedding also failed: {sync_error}")
-                        raise HTTPException(status_code=500, detail=f"Failed to generate embeddings: {sync_error}")
-                        print(f"Query Embedding: {len(query_embedding)} dimensions")  # Debug print
-                
+                    print(f"Successfully embedded query with {len(query_embedding)} dimensions")
+                    
+                except Exception as embed_error:
+                    print(f"Embedding failed: {embed_error}")
+                    return TstStudentQueryResponse(
+                        model=model,
+                        question=request.message,
+                        answer=f"Failed to process query: {str(embed_error)}",
+                        status="incomplete",
+                        message="Error generating query embeddings."
+                    )
                 dbInstance = ChromaDB()
-                results = dbInstance.retrieve_similar_with_metadata(query_embedding, request)
+                results = dbInstance.retrieve_similar_with_metadata(
+                    query_embedding, 
+                    request, 
+                    top_k=5,
+                    similarity_threshold=0.3  # Research-grade similarity threshold
+                )
                 print(f"Retrieved {len(results) if results else 0} documents")  # Debug print
                 
                 # Format results for response
