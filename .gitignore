@@ -168,10 +168,7 @@ logs/
 .env.development
 secrets.json
 
-# Model files (if large)
-models/
-*.pkl
-*.model
+
 
 # Test files
 test_files/
