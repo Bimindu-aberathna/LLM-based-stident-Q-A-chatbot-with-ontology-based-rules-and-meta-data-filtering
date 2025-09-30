@@ -4,6 +4,7 @@ from app.abstract_factory.Database.chromadb import ChromaDB
 from app.abstract_factory.Embedder.open_ai_embedder import OpenAIEmbedder
 from app.models.chat import ChatRequest, ChatResponse, GeneralKnowledgeResponse, GeneralKnowledgeRequest, StudentQueryRequest, TstStudentQueryResponse, IncompleteQueryResponse
 import os
+from app.services.LLM_Services import LLMServiceManager
 from openai import OpenAI
 import re
 
@@ -70,8 +71,9 @@ async def chat_endpoint(request: StudentQueryRequest):
         raise HTTPException(status_code=400, detail="Message cannot be empty.")
     if len(request.message) > 2000:
         raise HTTPException(status_code=400, detail="Message is too long. Please limit to 2000 characters.")
-    if (re.match(r'^[a-zA-Z0-9\s\?\,"\'\&]+$', request.message) is None):
-        raise HTTPException(status_code=400, detail="Message contains invalid characters.")
+    # Allow letters, numbers, spaces, and common punctuation for academic questions
+    if (re.match(r'^[a-zA-Z0-9\s.,!?\'"&()-]+$', request.message) is None):
+        raise HTTPException(status_code=400, detail="Message contains invalid characters. Please use only letters, numbers, spaces, and basic punctuation.")
 
     # Prompt with strict JSON format
     prompt = f"""You are an AI assistant for University of Kelaniya's academic and administrative support system.
@@ -91,22 +93,34 @@ USER PROFILE:
 
 
 DECISION RULES:
-1. "success" - If query is about:
-   - Academic subjects, courses, lectures, assignments
+1. "success" - If query is about ANY university-related topic including:
+   - Academic subjects, courses, lectures, assignments, exams
    - University policies, procedures, administrative matters
-   - Student services, academic programs
+   - Student services, academic programs, registration
    - Research topics related to their field of study
-   - Any university student information needs
-   - Questions about course content, syllabus, curriculum
+   - Campus facilities, library, IT services
+   - Dress code, attire, presentation guidelines
+   - Graduation requirements, academic regulations
+   - Timetables, schedules, deadlines
+   - Faculty information, contact details
+   - ANY university student information needs
    
-2. "invalid" - Only if query is clearly:
-   - Personal advice unrelated to academics
-   - Entertainment, sports, non-academic topics
-   - Completely unrelated to university context
+2. "invalid" - ONLY if query is completely unrelated to university life:
+   - Dating advice, personal relationships
+   - Entertainment recommendations (movies, games)
+   - Cooking recipes, travel plans
+   - Medical advice, legal advice
+   - Weather, news, sports scores
    
-3. "incomplete" - If query is too vague and needs clarification
+3. "incomplete" - If query is too vague (like "help", "what?", "tell me more" without context)
 
-For "success" cases, rewrite the query to be more specific and searchable, adding context from the user's academic profile depending on the user's question or request. Try to increse the cosine similary for chunks.
+For "success" cases, rewrite the query to be more specific and searchable, adding context from the user's academic profile when relevant.
+
+EXAMPLES:
+- "What is the dress code?" → status: "success" (university policy)
+- "Tell me about presentation attire" → status: "success" (academic requirement)
+- "What movies should I watch?" → status: "invalid" (entertainment)
+- "Help me" → status: "incomplete" (too vague)
 
 USER QUERY: "{request.message}"
 
@@ -246,33 +260,34 @@ Respond in JSON format:
                 )
 
                 print(f"Retrieved - Academic: {len(academic_chunks)}, Non-Academic: {len(non_academic_chunks)}")
+                if non_academic_chunks:
+                    print(f"Sample0000000000000000000000000000000000000 Non-Academic Chunk Metadata: {"\n\n".join(non_academic_chunks)} ____00000000000000000000000")
+                if academic_chunks:
+                    print(f"Sample0000000000000000000000000000000000000 Academic Chunk Metadata: {"\n\n".join(academic_chunks)} ____00000000000000000000000")
 
                 # Now you can pass them separately to LLM
                 if academic_chunks or non_academic_chunks:
                     # Create separate contexts
                     academic_context = "\n\n=== ACADEMIC CONTENT ===\n" + "\n\n".join(academic_chunks) if academic_chunks else ""
                     non_academic_context = "\n\n=== NON-ACADEMIC CONTENT ===\n" + "\n\n".join(non_academic_chunks) if non_academic_chunks else ""
+                    llm_service_manager = LLMServiceManager()
+                    llm_response = llm_service_manager.generate_response(
+                        question=request.message,
+                        academic_context=academic_context,
+                        non_academic_context=non_academic_context,
+                        studentMetadata=request
+                    )
                     
-                    # Combine for LLM or use separately
-                    combined_context = academic_context + non_academic_context
+                   
                     
-                    # Or handle them separately in your prompt
-                    response_prompt = f"""Based on the following documents, answer the user's query: "{request.message}"
-
-                    ACADEMIC DOCUMENTS:
-                    {academic_context if academic_context else "No relevant academic documents found."}
-
-                    NON-ACADEMIC DOCUMENTS (with ranking scores):
-                    {non_academic_context if non_academic_context else "No relevant non-academic documents found."}
-
-                    Provide a helpful, accurate response based on the information above."""
-                    print("///////////////////////////////////////////////////////////////////////////////////////////////")
-                    print(response_prompt)
-                    print("///////////////////////////////////////////////////////////////////////////////////////////////")                
-                # Format results for response
-                if academic_chunks or non_academic_chunks:
-                    context_docs = academic_context + non_academic_context
-                    answer_message = f"Found {len(academic_chunks)} academic and {len(non_academic_chunks)} non-academic documents based on your query:\n\n{context_docs[:1500]}..."
+                    print("///////////////////////////////////////////////////////////////////////////////////////////////")   
+                    return TstStudentQueryResponse( 
+                        model=llm_response.get("model", model),
+                        question=request.message,
+                        answer=llm_response.get("answer", "No answer generated."),
+                        status=llm_response.get("status", "incomplete"),
+                        message="Query processed successfully." if llm_response.get("success", False) else llm_response.get("error", "Error in LLM response.")
+                    )             
                 else:
                     answer_message = "No relevant documents found for your query. The database might be empty or no documents match your criteria."
                 

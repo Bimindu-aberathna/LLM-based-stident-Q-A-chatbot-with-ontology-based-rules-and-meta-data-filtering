@@ -62,7 +62,7 @@ class ChromaDB(VectorStore):
     course_codes: list[str] = []
     courses_done: list[str] = []
     """
-    def retrieve_similar_with_metadata(self, query_vector: List[float], studentMetadata: StudentQueryRequest, top_k: int = 5, similarity_threshold: float = 0.7) -> tuple[List[str], List[str]]:
+    def retrieve_similar_with_metadata(self, query_vector: List[float], studentMetadata: StudentQueryRequest, top_k: int = 10, similarity_threshold: float = 0.7) -> tuple[List[str], List[str]]:
         """
         Retrieve similar chunks with rule-based metadata filtering AND similarity threshold
         Returns: (academic_chunks, non_academic_chunks) - Two separate lists
