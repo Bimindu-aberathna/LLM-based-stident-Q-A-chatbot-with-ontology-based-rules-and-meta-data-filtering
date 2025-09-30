@@ -1,4 +1,5 @@
 from app.abstract_factory.Database.vector_store import VectorStore
+from app.RAG_Components.metadata_filtering_manager import apply_rule_based_filters
 from app.models.chat import StudentQueryRequest
 import chromadb
 from typing import List, Optional,Dict, Any
@@ -31,18 +32,7 @@ class ChromaDB(VectorStore):
             metadatas=metadatas
         )
 
-    def retrieve_similar(self, query_vector: List[float], studentMetadata: StudentQueryRequest, top_k: int = 5) -> List[str]:
-        try:
-            results = self.collection.query(
-                query_embeddings=[query_vector],
-                n_results=top_k
-            )
-            # Return the actual text chunks, not embeddings
-            return results['documents'][0] if results['documents'] else []
-        except Exception as e:
-            print(f"Error retrieving similar chunks: {e}")
-            return []
-    
+  
     def chroma_connect(self):
         try:
             
@@ -72,275 +62,93 @@ class ChromaDB(VectorStore):
     course_codes: list[str] = []
     courses_done: list[str] = []
     """
-    def retrieve_similar_with_metadata(self, query_vector: List[float], studentMetadata: StudentQueryRequest, top_k: int = 5) -> List[str]:
+    def retrieve_similar_with_metadata(self, query_vector: List[float], studentMetadata: StudentQueryRequest, top_k: int = 10, similarity_threshold: float = 0.7) -> tuple[List[str], List[str]]:
         """
-        Retrieve similar chunks with rule-based metadata filtering
+        Retrieve similar chunks with rule-based metadata filtering AND similarity threshold
+        Returns: (academic_chunks, non_academic_chunks) - Two separate lists
         """
         try:
             # Debug: Check collection contents
             collection_count = self.collection.count()
-            print(f"Collection '_________________________{self.COLLECTION_NAME}' contains {collection_count} documents")
-            
             if collection_count == 0:
-                print("WARNING:_________________________ Collection is empty! No documents to search.")
-                return []
-            
-            # Debug: Show some sample documents
+                return [], []
             sample_results = self.collection.get(limit=3, include=['documents', 'metadatas'])
-            # print(f"Sample documents in collection: {sample_results['documents'][:2] if sample_results['documents'] else 'None'}")
             print(f"Sample metadata: {sample_results['metadatas'][:2] if sample_results['metadatas'] else 'None'}")
             
             # Get more results initially to account for filtering
-            search_k = min(top_k * 3, 50)  # Get 3x more results to filter from
+            search_k = min(top_k * 5, 100)  # Increased for better filtering
             
             print(f"Querying with vector length: {len(query_vector)}")
             results = self.collection.query(
                 query_embeddings=[query_vector],
-                n_results=search_k
+                n_results=search_k,
+                include=['documents', 'metadatas', 'distances']  # Include distances for similarity scores
             )
-            print(f"Raw query results: _________________________{len(results.get('documents', [[]])[0])} documents found")
             
             if not results['documents'] or len(results['documents']) == 0:
                 print("No documents returned from similarity search")
-                return []
+                return [], []
             
-            print(f"Retrieved following documents: {results['documents'][0][:2] if results['documents'][0] else 'None'}")  # Show first 2 only
-            print(f"With corresponding metadatas: {results['metadatas'][0][:2] if results['metadatas'] and results['metadatas'][0] else 'None'}")
+            print(f"Raw query results: {len(results['documents'][0])} documents found")
             
-            # Apply rule-based filtering
-            filtered_results = self._apply_rule_based_filters(results, studentMetadata)
-            print(f"After filtering: {len(filtered_results)} documents remain")
+            # Apply similarity threshold filtering FIRST
+            similarity_filtered_results = self._apply_similarity_threshold(results, similarity_threshold)
+            print(f"After similarity threshold ({similarity_threshold}): {len(similarity_filtered_results['documents']) if similarity_filtered_results['documents'] else 0} documents remain")
             
-            # Return top_k results after filtering
-            return filtered_results[:top_k]
+            if not similarity_filtered_results['documents'] or len(similarity_filtered_results['documents']) == 0:
+                print("No documents passed similarity threshold")
+                return [], []
             
+            # Then apply rule-based filtering
+            academic_chunks, non_academic_chunks = apply_rule_based_filters(similarity_filtered_results, studentMetadata)
+            
+            print(f"After rule-based filtering: Academic: {len(academic_chunks)}, Non-Academic: {len(non_academic_chunks)}")
+            
+            # Return both lists (truncated to top_k each)
+            return academic_chunks[:10], non_academic_chunks[:10]
         except Exception as e:
             logging.error(f"Error in retrieve_similar_with_metadata: {str(e)}")
             print(f"Exception in retrieve_similar_with_metadata: {str(e)}")
-            return []
+            return [], []
 
-    def _apply_rule_based_filters(self, results: Dict, studentMetadata: StudentQueryRequest) -> List[str]:
+    def _apply_similarity_threshold(self, results: Dict, threshold: float) -> Dict:
         """
-        Apply strict rule-based filtering according to the defined ruleset
+        Filter results by similarity threshold
+        ChromaDB returns distances, need to convert to similarity scores
         """
         if not results['documents'] or len(results['documents']) == 0:
-            return []
+            return {'documents': [], 'metadatas': [], 'distances': []}
         
         filtered_documents = []
+        filtered_metadatas = []
+        filtered_distances = []
+        
         documents = results['documents'][0]
         metadatas = results['metadatas'][0] if results['metadatas'] else []
+        distances = results['distances'][0] if results['distances'] else []
         
-        for doc, metadata in zip(documents, metadatas):
-            if self._passes_all_rules(metadata, studentMetadata):
+        print(f"\n=== SIMILARITY THRESHOLD FILTERING ===")
+        print(f"Threshold: {threshold}")
+        
+        for i, (doc, metadata, distance) in enumerate(zip(documents, metadatas, distances)):
+            # Convert distance to similarity score
+            # ChromaDB with cosine distance: similarity = 1 - distance
+            similarity_score = 1.0 - distance
+            
+            print(f"Document {i+1}: similarity = {similarity_score:.3f} ({'PASS' if similarity_score >= threshold else 'REJECT'})")
+            
+            if similarity_score >= threshold:
                 filtered_documents.append(doc)
+                filtered_metadatas.append(metadata)
+                filtered_distances.append(distance)
         
-        return filtered_documents
+        return {
+            'documents': [filtered_documents] if filtered_documents else [],
+            'metadatas': [filtered_metadatas] if filtered_metadatas else [],
+            'distances': [filtered_distances] if filtered_distances else []
+        }
 
-    def _passes_all_rules(self, doc_metadata: Dict, student: StudentQueryRequest) -> bool:
-        """
-        Check if document passes ALL filtering rules
-        Returns True only if ALL applicable rules pass
-        """
-        
-        # Rule 1: Batch matching
-        if not self._check_batch_rule(doc_metadata, student):
-            return False
-        
-        # Rule 2: Faculty matching
-        if not self._check_faculty_rule(doc_metadata, student):
-            return False
-        
-        # Rule 3: Department matching
-        if not self._check_department_rule(doc_metadata, student):
-            return False
-        
-        # Rule 4: Degree program matching
-        if not self._check_degree_program_rule(doc_metadata, student):
-            return False
-        
-        # Rule 5: Specialization track matching
-        if not self._check_specialization_rule(doc_metadata, student):
-            return False
-        
-        # Rule 6: Year matching
-        if not self._check_year_rule(doc_metadata, student):
-            return False
-        
-        # Document type-specific rules
-        doc_type = doc_metadata.get('type', '').lower()
-        
-        if doc_type == 'academic':
-            # Rule 7: Course relevance for academic documents
-            if not self._check_course_relevance_rule(doc_metadata, student):
-                return False
-            
-            # Rule 8: Semester matching for academic documents
-            if not self._check_semester_rule(doc_metadata, student):
-                return False
-        
-        elif doc_type == 'non-academic':
-            # Rule 9: Validity check for non-academic documents
-            if not self._check_validity_rule(doc_metadata):
-                return False
-        
-        return True
-
-    def _check_batch_rule(self, doc_metadata: Dict, student: StudentQueryRequest) -> bool:
-        """Rule 1: Batch matching"""
-        doc_batches = doc_metadata.get('batches_affecting', '')
-        if not doc_batches:
-            return True  # No batch restriction
-        
-        # Split comma-separated string to list
-        batch_list = [b.strip() for b in doc_batches.split(',') if b.strip()]
-        if not batch_list:
-            return True  # Empty list means applicable to all
-        
-        return student.batch in batch_list
-
-    def _check_faculty_rule(self, doc_metadata: Dict, student: StudentQueryRequest) -> bool:
-        """Rule 2: Faculty matching - Handle JSON strings"""
-        doc_faculties = doc_metadata.get('faculties_affecting', '')
-        if not doc_faculties:
-            return True
-        
-        # Handle JSON string format: ["Science"] -> Science
-        try:
-            import json
-            if doc_faculties.startswith('["') and doc_faculties.endswith('"]'):
-                faculty_list = json.loads(doc_faculties)
-            else:
-                faculty_list = [f.strip() for f in doc_faculties.split(',') if f.strip()]
-        except:
-            faculty_list = [f.strip() for f in doc_faculties.split(',') if f.strip()]
-        
-        if not faculty_list:
-            return True
-        
-        print(f"Faculty check: Student={student.faculty}, Doc={faculty_list}")
-        return student.faculty in faculty_list
-
-    def _check_department_rule(self, doc_metadata: Dict, student: StudentQueryRequest) -> bool:
-        """Rule 3: Department matching - Handle JSON strings"""
-        doc_departments = doc_metadata.get('departments_affecting', '')
-        if not doc_departments:
-            return True
-        
-        # Handle JSON string format: ["IM"] -> IM
-        try:
-            import json
-            if doc_departments.startswith('["') and doc_departments.endswith('"]'):
-                dept_list = json.loads(doc_departments)
-            else:
-                dept_list = [d.strip() for d in doc_departments.split(',') if d.strip()]
-        except:
-            dept_list = [d.strip() for d in doc_departments.split(',') if d.strip()]
-        
-        if not dept_list:
-            return True
-        
-        print(f"Department check: Student={student.department}, Doc={dept_list}")
-        return student.department in dept_list
-
-    def _check_degree_program_rule(self, doc_metadata: Dict, student: StudentQueryRequest) -> bool:
-        """Rule 4: Degree program matching - Handle JSON strings"""
-        doc_programs = doc_metadata.get('degree_programs', '')
-        if not doc_programs:
-            return True
-        
-        # Handle JSON string format: ["Bsc(Hons) IT","Bsc(Hons) MIT"] -> list
-        try:
-            import json
-            if doc_programs.startswith('["') and doc_programs.endswith('"]'):
-                program_list = json.loads(doc_programs)
-            else:
-                program_list = [p.strip() for p in doc_programs.split(',') if p.strip()]
-        except:
-            program_list = [p.strip() for p in doc_programs.split(',') if p.strip()]
-        
-        if not program_list:
-            return True
-        
-        print(f"Degree program check: Student={student.degree_program}, Doc={program_list}")
-        return student.degree_program in program_list
-
-    def _check_course_relevance_rule(self, doc_metadata: Dict, student: StudentQueryRequest) -> bool:
-        """Rule 7: Course relevance - Handle spaces in course codes"""
-        doc_course_code = doc_metadata.get('course_code', '').strip()
-        if not doc_course_code:
-            return True
-        
-        # Normalize course codes (remove spaces for comparison)
-        doc_course_normalized = doc_course_code.replace(' ', '')
-        
-        # Check against student's current and completed courses (also normalized)
-        all_student_courses = student.course_codes + student.courses_done
-        normalized_student_courses = [course.replace(' ', '') for course in all_student_courses]
-        
-        print(f"Course check: Student courses={normalized_student_courses}, Doc course={doc_course_normalized}")
-        return doc_course_normalized in normalized_student_courses
-
-    def _check_year_rule(self, doc_metadata: Dict, student: StudentQueryRequest) -> bool:
-        """Rule 6: Academic year matching - More flexible"""
-        doc_year = doc_metadata.get('year')
-        if not doc_year:
-            return True
-        
-        try:
-            doc_year_int = int(doc_year)
-            student_year_int = int(student.current_year)
-            
-            if(student_year_int < doc_year_int):
-                return False
-            else :
-                return True
-        except (ValueError, TypeError):
-            return True
-
-    def _check_specialization_rule(self, doc_metadata: Dict, student: StudentQueryRequest) -> bool:
-        """Rule 5: Specialization track matching"""
-        doc_specialization = doc_metadata.get('specialization_track', '').strip()
-        if not doc_specialization:
-            return True  # No specialization restriction
-        
-        student_specialization = student.specialization.strip() if student.specialization else ''
-        if not student_specialization:
-            return False  # Student has no specialization but document requires one
-        
-        return doc_specialization.lower() == student_specialization.lower()
-
-    def _check_semester_rule(self, doc_metadata: Dict, student: StudentQueryRequest) -> bool:
-        """Rule 8: Semester matching for academic documents"""
-        doc_semester = doc_metadata.get('semester')
-        if not doc_semester:
-            return True  # No semester restriction
-        
-        try:
-            doc_sem_int = int(doc_semester)
-            student_sem_int = int(student.current_sem)
-            
-            # Document semester should be current semester or below
-            return doc_sem_int <= student_sem_int
-        except (ValueError, TypeError):
-            return True  # If conversion fails, don't filter out
-
-    def _check_validity_rule(self, doc_metadata: Dict) -> bool:
-        """Rule 9: Validity check for non-academic documents"""
-        validity = doc_metadata.get('validity')
-        if not validity:
-            return True  # No validity restriction
-        
-        try:
-            from datetime import datetime
-            # Parse validity date (assume ISO format)
-            validity_date = datetime.fromisoformat(validity.replace('Z', '+00:00'))
-            current_date = datetime.now()
-            
-            # Document is valid if current date is before validity date
-            return current_date <= validity_date
-        except (ValueError, TypeError):
-            return True  # If parsing fails, assume valid
-
+    
 
         
     def clear_collection(self) -> None:
@@ -366,3 +174,4 @@ class ChromaDB(VectorStore):
             }
         except Exception as e:
             return {"error": str(e)}
+        
