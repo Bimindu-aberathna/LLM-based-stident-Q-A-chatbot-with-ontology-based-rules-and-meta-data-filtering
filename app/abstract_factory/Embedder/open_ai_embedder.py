@@ -17,8 +17,6 @@ class OpenAIEmbedder(Embedder):
         except Exception as e:
             print(f"Error embedding documents: {e}")
 
-        for (i, embedding) in enumerate(embeddings):
-            print(f"Document {i} embedding: {embedding}")
 
         return embeddings
     

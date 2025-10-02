@@ -153,6 +153,7 @@ Desktop.ini
 # ChromaDB data directory
 data/
 chroma_db/
+Docs/
 
 # Uploaded files
 uploads/

@@ -87,8 +87,6 @@ def apply_rule_based_filters(
     
     for chunk in academic_chunks:
         print(f"\n--- Processing Academic Chunk ---")
-        print(f"Original chunk preview: {chunk['text'][:100]}...")
-        
         if neighbor_retriever:
             chunk_with_neighbors = neighbor_retriever.retrieve_neighbor_chunks_for_a_chunk(
                 chunk=chunk['text'],

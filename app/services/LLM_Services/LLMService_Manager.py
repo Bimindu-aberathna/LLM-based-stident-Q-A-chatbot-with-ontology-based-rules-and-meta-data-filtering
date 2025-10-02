@@ -134,14 +134,20 @@ NON-ACADEMIC CONTEXT (Priority Ordered):
 
 INSTRUCTIONS:
 - Use ONLY the information provided in above ACADEMIC CONTEXT & NON-ACADEMIC CONTEXT. If necessary information is missing, respond with "Database do not have sufficient information. Please contact the university administration for further assistance."
-- Always respond in JSON format with 'answer' and 'status' fields.
+- Always respond in JSON format with 'answer' and 'status' fields. 
+- Make sure 'answer' is a single string, not a list or array.
 - Never make up answers or use external knowledge
 - If the answer is not in the provided context, respond with "Database do not have sufficient information. Please contact the university administration for further assistance."
-- For non-academic context: Higher scores like [SCORE: 115.0] indicate higher priority based on ontological relevance and freshness
-- When there are conflicts, prioritize information with higher scores
-- If information is missing or unclear, say so
-- Be direct and specific
-- Course codes like "INTE 12523": INTE=department, 1=year, 2=semester, 5=credits, 23=course number
+- The non-academic context may show chunks annotated like [SCORE: 112.5]. Higher SCORE means higher priority (ontology relevance + freshness).
+- NEVER invent or adjust any SCORE values. Only use scores exactly as shown. If no scores appear, ignore this rule.
+- When multiple chunks give conflicting statements about the SAME subject:
+  1. Always prefer the chunk with the HIGHER SCORE.
+  2. If SCORES are identical, prefer the one explicitly stating it is newer (latest dates / later upload_date wording).
+  3. If still tied, mention BOTH and mark the answer as "partial" (status = "partial").
+- Do not mix older and newer directives unless tie cannot be resolved.
+- If information is missing or unclear, say so.
+- Be direct and specific.
+- Course codes like "INTE 12553": INTE=department, 1=year, 2=semester, 3=credits.
 
 QUESTION: {question}
 

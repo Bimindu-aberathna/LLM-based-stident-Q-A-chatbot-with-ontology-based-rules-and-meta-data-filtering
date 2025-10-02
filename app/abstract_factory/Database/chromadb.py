@@ -8,7 +8,7 @@ import uuid
 import os
 
 class ChromaDB(VectorStore):
-    COLLECTION_NAME = "document_corpus"  # Single shared collection for all documents
+    COLLECTION_NAME = "document_corpus_test"  # Single shared collection for all documents
 
     def __init__(self):
         self.client = None  # Instance-level client
@@ -72,13 +72,10 @@ class ChromaDB(VectorStore):
             collection_count = self.collection.count()
             if collection_count == 0:
                 return [], []
-            sample_results = self.collection.get(limit=3, include=['documents', 'metadatas'])
-            print(f"Sample metadata: {sample_results['metadatas'][:2] if sample_results['metadatas'] else 'None'}")
             
             # Get more results initially to account for filtering
-            search_k = min(top_k * 5, 100)  # Increased for better filtering
+            search_k = min(top_k * 8, 100)  # Increased for better filtering
             
-            print(f"Querying with vector length: {len(query_vector)}")
             results = self.collection.query(
                 query_embeddings=[query_vector],
                 n_results=search_k,
@@ -93,7 +90,6 @@ class ChromaDB(VectorStore):
             
             # Apply similarity threshold filtering FIRST
             similarity_filtered_results = self._apply_similarity_threshold(results, similarity_threshold)
-            print(f"After similarity threshold ({similarity_threshold}): {len(similarity_filtered_results['documents']) if similarity_filtered_results['documents'] else 0} documents remain")
             
             if not similarity_filtered_results['documents'] or len(similarity_filtered_results['documents']) == 0:
                 print("No documents passed similarity threshold")
@@ -105,7 +101,7 @@ class ChromaDB(VectorStore):
             print(f"After rule-based filtering: Academic: {len(academic_chunks)}, Non-Academic: {len(non_academic_chunks)}")
             
             # Return both lists (truncated to top_k each)
-            return academic_chunks[:10], non_academic_chunks[:10]
+            return academic_chunks[:top_k], non_academic_chunks[:top_k]
         except Exception as e:
             logging.error(f"Error in retrieve_similar_with_metadata: {str(e)}")
             print(f"Exception in retrieve_similar_with_metadata: {str(e)}")
@@ -174,4 +170,69 @@ class ChromaDB(VectorStore):
             }
         except Exception as e:
             return {"error": str(e)}
+
+    def debug_chromadb(self) -> str:
+        db = ChromaDB()
+        debug_info = []
+
+        debug_info.append("\n=== CHROMADB DEBUG ANALYSIS ===")
         
+        # Check total documents
+        info = db.debug_collection_info()
+        debug_info.append(f"Total documents in collection: {info.get('count', 'Error')}")
+        if 'error' in info:
+            debug_info.append(f"Error retrieving collection info: {info['error']}")
+            return "\n".join(debug_info)
+        # Look for documents containing "initially planned"
+        docs_with_initially = db.find_documents_by_keyword("initially planned")
+        debug_info.append(f"Found {len(docs_with_initially)} documents with 'initially planned'")
+        for doc in docs_with_initially:
+            debug_info.append(f"Doc {doc['index']+1}:")
+            debug_info.append(f"  Upload date: {doc['metadata'].get('upload_date', 'No date')}")
+            debug_info.append(f"  Document name: {doc['metadata'].get('document_name', 'No name')}")
+            debug_info.append(f"  Preview: {doc['preview']}")
+            debug_info.append("")     
+            print()
+        
+        # Look for documents containing "reach agreement" or "reached agreement"
+        debug_info.append("\n=== DOCUMENTS CONTAINING 'agreement' ===")
+        docs_with_agreement = db.find_documents_by_keyword("agreement")
+        debug_info.append(f"Found {len(docs_with_agreement)} documents with 'agreement'")
+        for doc in docs_with_agreement:
+            debug_info.append(f"Doc {doc['index']+1}:")
+            debug_info.append(f"  Upload date: {doc['metadata'].get('upload_date', 'No date')}")
+            debug_info.append(f"  Document name: {doc['metadata'].get('document_name', 'No name')}")
+            debug_info.append(f"  Preview: {doc['preview']}")
+            debug_info.append("")
+
+        # Look for documents containing "futa strike"
+        debug_info.append("\n=== DOCUMENTS CONTAINING 'futa' ===")
+        docs_with_futa = db.find_documents_by_keyword("futa")
+        debug_info.append(f"Found {len(docs_with_futa)} documents with 'futa'")
+        for doc in docs_with_futa:
+            debug_info.append(f"Doc {doc['index']+1}:")
+            debug_info.append(f"  Upload date: {doc['metadata'].get('upload_date', 'No date')}")
+            debug_info.append(f"  Document name: {doc['metadata'].get('document_name', 'No name')}")
+            debug_info.append(f"  Preview: {doc['preview']}")
+            debug_info.append("")
+        return "\n".join(debug_info)
+    
+    def find_documents_by_keyword(self, keyword: str) -> List[Dict]:
+        """Debug method to find documents containing specific keywords"""
+        try:
+            all_docs = self.collection.get(include=['documents', 'metadatas'])
+            matching_docs = []
+            
+            for i, (doc, metadata) in enumerate(zip(all_docs['documents'], all_docs['metadatas'])):
+                if keyword.lower() in doc.lower():
+                    matching_docs.append({
+                        'index': i,
+                        'document': doc,
+                        'metadata': metadata,
+                        'preview': doc[:200] + '...' if len(doc) > 200 else doc
+                    })
+            
+            return matching_docs
+        except Exception as e:
+            print(f"Error searching documents: {e}")
+            return []

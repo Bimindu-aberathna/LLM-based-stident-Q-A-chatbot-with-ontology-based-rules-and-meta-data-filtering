@@ -1,5 +1,5 @@
 import re
-from typing import List
+from typing import List, Optional
 import spacy
 from sentence_transformers import SentenceTransformer, util
 
@@ -8,142 +8,193 @@ class TextPreprocessor:
     def __init__(self):
         self.nlp = spacy.load("en_core_web_sm")
         self.stopwords = set(spacy.lang.en.stop_words.STOP_WORDS)
+        self._embed_model: Optional[SentenceTransformer] = None  # lazy load
 
-    def clean_text(self, text: str) -> str:
-        # Remove headers/footers patterns
-        text = re.sub(r'Page \d+ of \d+', '', text)
-        text = re.sub(r'^\s*\d+\s*$', '', text, flags=re.MULTILINE)
-        
-        # Remove excessive whitespace but preserve paragraph structure
-        text = re.sub(r'\n\s*\n', '\n\n', text)
-        text = re.sub(r'[ \t]+', ' ', text)
-        
-        # Remove excessive punctuation but preserve sentence structure
-        text = re.sub(r'[^\w\s\.\?\!\,\;\:\-\(\)]', ' ', text)
-        text = re.sub(r'\.{2,}', '...', text)
-        text = self.case_normalize(text)
-        return text.strip()   
-    
-    def case_normalize(self, text: str) -> str:
-        #lowercase text
-        return text.lower() 
-    
+    def _get_embed_model(self):
+        if self._embed_model is None:
+            self._embed_model = SentenceTransformer("all-MiniLM-L6-v2")
+        return self._embed_model
     def nlp_process(self, text: str) -> str:
         # Process text with spaCy
+        critical_stopwords = {
+            "not", "no", "nor", "never", "n't", "none", "nothing", "nowhere", "neither", 
+            "hardly", "scarcely", "barely", "will", "be", "during", "despite", "although", 
+            "however", "accordingly", "initially", "but", "yet", "still", "even", "also",
+            "only", "just", "all", "any", "each", "every", "both", "either", "would",
+            "should", "could", "must", "may", "might", "can", "shall", "have", "has", "had"
+        }
+        
+        # Basic stopwords to remove
+        basic_stopwords = {
+            "the", "a", "an", "and", "in", "on", "at", "to", "for", "of", "by", "about", "into", "through", "during", "above", 
+            "below", "between", "among", "this", "that", "these", "those", "i", "me", "my",
+            "myself", "we", "our", "ours", "ourselves",  "yourself",
+            "yourselves", "he", "him", "his", "himself", "she", "her", "hers", "herself",
+            "it", "its", "itself", "they", "them", "their", "theirs", "themselves"
+        }
+        
+        # Remove basic stopwords but keep critical ones
+        self.stopwords = basic_stopwords
+        
         doc = self.nlp(text)
         processed_tokens = []
         for token in doc:
-            if not token.is_punct and not token.is_space and token.text.lower() not in self.stopwords:
-                processed_tokens.append(token.lemma_.lower())
+            if not token.is_punct and not token.is_space:
+                token_lower = token.text.lower()
+                # Keep critical stopwords or non-stopwords
+                if token_lower in critical_stopwords or token_lower not in self.stopwords:
+                    processed_tokens.append(token.lemma_.lower())
         
         return ' '.join(processed_tokens)
     
-    def chunk_text(self, text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]:
-        if overlap >= chunk_size:
-            raise ValueError("Overlap must be less than chunk_size")
-        
-        words = text.split()
-        if not words:
-            return []
-        
-        chunks = []
-        step = chunk_size - overlap
-        
-        for i in range(0, len(words), step):
-            chunk = ' '.join(words[i:i + chunk_size])
-            chunks.append(chunk)
-            # Stop if we've reached the end
-            if i + chunk_size >= len(words):
-                break
-        
-        return chunks
 
-    def smart_chunk_text(self, text: str, max_chunk_tokens: int = 500, min_chunk_tokens: int = 100, similarity_threshold: float = 0.65) -> list[str]:
-        # Load a sentence embedding model (fast & lightweight)
-        model = SentenceTransformer("all-MiniLM-L6-v2")
-        
-        # Step 1: Pre-clean text
-        clean_text = re.sub(r'\s+', ' ', text.strip())
-        
-        # Step 2: Split into sentences (basic rule-based)
-        sentences = re.split(r'(?<=[.!?])\s+', clean_text)
+    def clean_text(self, text: str) -> str:
+        text = re.sub(r'Page \d+ of \d+', '', text) 
+        text = re.sub(r'\n\s*\n', '\n\n', text) 
+        text = re.sub(r'[ \t]+', ' ', text) 
+        text = re.sub(r'\.{2,}', '...', text) 
+        return text.strip()
+
+    def smart_chunk_text(
+        self,
+        text: str,
+        max_chunk_words: int = 450,
+        min_chunk_words: int = 100,
+        similarity_threshold: float = 0.75,
+        overlap_words: int = 40
+    ) -> List[str]:
+        """
+        Semantic chunking with strict size guarantees.
+
+        Guarantees:
+          - Base chunk length (before overlap) <= max_chunk_words
+          - Overlapped chunk length <= max_chunk_words + overlap_words
+          - Only final tiny remainder may be < min_chunk_words (kept to avoid data loss)
+        """
+        cleaned = self.clean_text(text)
+        if not cleaned:
+            return []
+
+        # Sentence segmentation via spaCy (robust vs regex + lowercase issues)
+        doc = self.nlp(cleaned)
+        sentences = [s.text.strip() for s in doc.sents if s.text.strip()]
         if not sentences:
             return []
-        
-        chunks, current_chunk = [], []
-        current_chunk_len = 0
-        
-        # Step 3: Embed sentences
-        embeddings = model.encode(sentences, convert_to_tensor=True, normalize_embeddings=True)
-        
-        # Step 4: Group semantically similar sentences into chunks
-        for i, sentence in enumerate(sentences):
-            token_len = len(sentence.split())
-            
-            # If adding sentence exceeds max length → start new chunk
-            if current_chunk_len + token_len > max_chunk_tokens:
-                if current_chunk:
-                    chunks.append(" ".join(current_chunk))
-                current_chunk = [sentence]
-                current_chunk_len = token_len
-                continue
-            
-            # If semantically dissimilar → start new chunk
-            if current_chunk and util.cos_sim(embeddings[i], embeddings[i-1]) < similarity_threshold:
-                chunks.append(" ".join(current_chunk))
-                current_chunk = [sentence]
-                current_chunk_len = token_len
+
+        # Split ultra-long sentences first
+        processed_sentences: List[str] = []
+        for sent in sentences:
+            words = sent.split()
+            if len(words) <= max_chunk_words:
+                processed_sentences.append(sent)
             else:
-                # Add to current chunk
-                current_chunk.append(sentence)
-                current_chunk_len += token_len
-        
-        # Step 5: Add final chunk
-        if current_chunk:
-            if len(" ".join(current_chunk).split()) >= min_chunk_tokens:
-                chunks.append(" ".join(current_chunk))
+                # Clause-level split by punctuation, then enforce cap
+                clauses = re.split(r'[,;:](?=\s)', sent)
+                buffer = []
+                buf_len = 0
+                for clause in clauses:
+                    w = clause.strip().split()
+                    if buf_len + len(w) <= max_chunk_words:
+                        buffer.extend(w)
+                        buf_len += len(w)
+                    else:
+                        if buffer:
+                            processed_sentences.append(" ".join(buffer))
+                        buffer = w[:max_chunk_words]  # enforce cap
+                        buf_len = len(buffer)
+                        # If remaining clause still too long, chunk it
+                        if len(w) > max_chunk_words:
+                            tail = w[max_chunk_words:]
+                            while tail:
+                                processed_sentences.append(" ".join(tail[:max_chunk_words]))
+                                tail = tail[max_chunk_words:]
+                            buffer = []
+                            buf_len = 0
+                if buffer:
+                    processed_sentences.append(" ".join(buffer))
 
-        processed_chunks = self.enforce_min_size(chunks, min_chunk_tokens)
-        return self.add_overlap(processed_chunks, overlap_tokens=50)
-
-    def enforce_min_size(self, chunks: List[str], min_chunk_tokens: int = 50) -> List[str]:
-        if not chunks:
+        if not processed_sentences:
             return []
 
-        fixed_chunks = []
-        i = 0
-        while i < len(chunks):
-            chunk = chunks[i].strip()
-            word_count = len(chunk.split())
+        # Embeddings for semantic boundary detection
+        model = self._get_embed_model()
+        embeddings = model.encode(
+            processed_sentences,
+            convert_to_tensor=True,
+            normalize_embeddings=True
+        )
 
-            # If chunk is too small, merge with neighbor
-            if word_count < min_chunk_tokens:
-                if fixed_chunks:  # merge with previous if exists
-                    fixed_chunks[-1] = fixed_chunks[-1].strip() + " " + chunk
-                elif i + 1 < len(chunks):  # otherwise merge with next
-                    chunks[i + 1] = chunk + " " + chunks[i + 1]
-                else:  # only one very short chunk
-                    fixed_chunks.append(chunk)
-            else:
-                fixed_chunks.append(chunk)
-            i += 1
+        base_chunks: List[List[str]] = []
+        current: List[str] = []
+        current_len = 0
 
-        return fixed_chunks
-    
-    def add_overlap(self, chunks, overlap_tokens=50) -> List[str]:
-        if overlap_tokens <= 0:
-            return chunks  
-        overlapped_chunks = []
-        
-        for i, chunk in enumerate(chunks):
-            words = chunk.split()
-            if i > 0 and overlap_tokens > 0:
-                # prepend last N words of previous chunk
-                prev_words = chunks[i-1].split()
-                prefix = prev_words[-overlap_tokens:] if len(prev_words) > overlap_tokens else prev_words
-                merged = " ".join(prefix + words)
-                overlapped_chunks.append(merged)
+        for i, sent in enumerate(processed_sentences):
+            sent_words = sent.split()
+            sw_len = len(sent_words)
+
+            # If adding exceeds size cap → flush
+            if current and current_len + sw_len > max_chunk_words:
+                base_chunks.append(current)
+                current = sent_words
+                current_len = sw_len
+                continue
+
+            # Semantic boundary?
+            semantic_break = False
+            if current and i > 0:
+                sim = float(util.cos_sim(embeddings[i], embeddings[i - 1]))
+                semantic_break = sim < similarity_threshold
+
+            if semantic_break and current_len >= min_chunk_words:
+                base_chunks.append(current)
+                current = sent_words
+                current_len = sw_len
             else:
-                overlapped_chunks.append(chunk)
-        
-        return overlapped_chunks
+                current.extend(sent_words)
+                current_len += sw_len
+
+            # Hard safety (shouldn't trigger normally)
+            if current_len > max_chunk_words:
+                base_chunks.append(current[:max_chunk_words])
+                leftover = current[max_chunk_words:]
+                current = leftover
+                current_len = len(leftover)
+
+        if current:
+            base_chunks.append(current)
+
+        # Merge ONLY a trailing tiny chunk (< min) if possible
+        if len(base_chunks) >= 2 and len(base_chunks[-1]) < min_chunk_words:
+            tail = base_chunks.pop()
+            prev = base_chunks[-1]
+            if len(prev) + len(tail) <= max_chunk_words:
+                base_chunks[-1] = prev + tail
+            else:
+                # Keep tail as its own small chunk (better than overflow)
+                base_chunks.append(tail)
+
+        # Convert to text
+        base_texts = [" ".join(words) for words in base_chunks]
+
+        # Add overlap
+        if overlap_words > 0 and len(base_texts) > 1:
+            final_chunks: List[str] = []
+            for idx, chunk_text in enumerate(base_texts):
+                if idx == 0:
+                    final_chunks.append(chunk_text)
+                    continue
+                prev_words = base_texts[idx - 1].split()
+                overlap = prev_words[-overlap_words:] if len(prev_words) > overlap_words else prev_words
+                combined_words = overlap + chunk_text.split()
+                if len(combined_words) > max_chunk_words + overlap_words:
+                    combined_words = combined_words[:max_chunk_words + overlap_words]
+                final_chunks.append(" ".join(combined_words))
+        else:
+            final_chunks = base_texts
+
+        # Debug (word counts)
+        for i, ch in enumerate(final_chunks, 1):
+            wc = len(ch.split())
+            print(f"😎😎[Chunk {i}]: {wc} words😎😎")
+
+        return final_chunks

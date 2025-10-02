@@ -40,3 +40,6 @@ class UploadNonAcademicDocument(BaseModel):
 class ClearDBResponse(BaseModel):
     success: bool
     message: str
+    
+class LongTextResponse(BaseModel):
+    detail: str

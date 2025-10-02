@@ -1,10 +1,12 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import APIRouter, UploadFile, File, HTTPException, Form
 from typing import List
 import json
 
+from fastapi.responses import PlainTextResponse
+
 from app.abstract_factory.Database.chromadb import ChromaDB
-from app.models.document import DocumentUploadResponse, UploadAcademicDocument, UploadNonAcademicDocument, ChunkingTestResponse, ClearDBResponse
+from app.models.document import DocumentUploadResponse, LongTextResponse, UploadAcademicDocument, UploadNonAcademicDocument, ChunkingTestResponse, ClearDBResponse
 from app.services.document_service import process_pdf
 from app.DocumentPreprocessor.pdf_extractor import PDFExtractor
 from app.DocumentPreprocessor.docx_extractor import DocxExtractor
@@ -175,15 +177,6 @@ async def upload_non_academic_document(
 ):
     """Handle non-academic document upload with metadata"""
     
-    print(f"=== NON-ACADEMIC DOCUMENT UPLOAD START ===")
-    print(f"File: {file.filename}")
-    print(f"Content type: {file.content_type}")
-    print(f"Subtype: {subtype}")
-    print(f"Hierarchy: {hierarchy_level}")
-    print(f"Raw degree_programs: {degree_programs}")
-    print(f"Raw departments: {departments_affecting}")
-    print(f"Raw faculties: {faculties_affecting}")
-    print(f"Raw batches: {batches_affecting}")
     
     if not file.filename.endswith(('.pdf', '.docx')):
         raise HTTPException(status_code=400, detail="Only PDF and DOCX files are allowed")
@@ -219,12 +212,6 @@ async def upload_non_academic_document(
         faculties = parse_json_array_or_all(faculties_affecting, "faculties_affecting")
         batches = parse_json_array_or_all(batches_affecting, "batches_affecting")
         
-        print(f"Final parsed arrays:")
-        print(f"  degrees: {degrees}")
-        print(f"  departments: {departments}")
-        print(f"  faculties: {faculties}")
-        print(f"  batches: {batches}")
-
         # Extract and process document
         print("=== DOCUMENT EXTRACTION ===")
         try:
@@ -249,9 +236,7 @@ async def upload_non_academic_document(
             preprocessor = TextPreprocessor()
             cleaned_text = preprocessor.clean_text(text_content)
             processed_text = preprocessor.nlp_process(cleaned_text)
-            smart_chunks = preprocessor.smart_chunk_text(processed_text)
-            regular_chunks = preprocessor.chunk_text(processed_text)
-            chunks = smart_chunks if smart_chunks else regular_chunks
+            chunks = preprocessor.smart_chunk_text(processed_text)
             
             if not chunks:
                 # Fallback: create a single chunk from the processed text
@@ -301,6 +286,8 @@ async def upload_non_academic_document(
                     # Reference
                     "link": link if link else "",  # Changed: None → ""
                     "upload_date": datetime.now().isoformat()
+                    # For testing purposes set upload date day before
+                    # "upload_date": (datetime.now() - timedelta(days=1)).isoformat()
                 } for i in range(len(chunks))
             ]
 
@@ -347,3 +334,12 @@ async def clear_database():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error clearing database: {str(e)}")
 
+@router.get("/debug_chroma", response_class=PlainTextResponse)
+async def debug_chroma():
+    """Endpoint to debug ChromaDB."""
+    try:
+        database = ChromaDB()
+        debug_info = database.debug_chromadb()
+        return debug_info  # Return the string directly
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error debugging ChromaDB: {str(e)}")

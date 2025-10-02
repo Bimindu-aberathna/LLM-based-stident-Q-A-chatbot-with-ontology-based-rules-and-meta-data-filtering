@@ -20,6 +20,7 @@ def apply_hierarchical_ranking(non_academic_chunks: List[Dict], student: Student
 
     for chunk in non_academic_chunks:
         metadata = chunk['metadata']
+        print(f"🤢🤢🤢🤢🤢Chunk text:::: {chunk['text']}🤢🤢🤢🤢")
 
         # Hierarchy score
         hierarchical_level = determine_hierarchical_level(metadata, student)
@@ -27,7 +28,15 @@ def apply_hierarchical_ranking(non_academic_chunks: List[Dict], student: Student
 
         # Freshness score
         freshness_score = calculate_freshness_score(metadata.get('upload_date', ''), MAX_FRESHNESS_POINTS)
-
+        
+        # Parse upload timestamp for secondary sorting
+        upload_timestamp = 0
+        try:
+            if metadata.get('upload_date'):
+                upload_timestamp = datetime.strptime(metadata['upload_date'], '%Y-%m-%dT%H:%M:%S.%f').timestamp()
+        except Exception:
+            upload_timestamp = 0
+        
         # Total score
         total_score = hierarchical_score + freshness_score
         scored_chunks.append({
@@ -37,11 +46,13 @@ def apply_hierarchical_ranking(non_academic_chunks: List[Dict], student: Student
             'hierarchical_score': hierarchical_score,
             'freshness_score': freshness_score,
             'total_score': total_score,
-            'hierarchical_level': hierarchical_level
+            'hierarchical_level': hierarchical_level,
+            'upload_timestamp': upload_timestamp  # ✅ ADD THIS LINE - IT WAS MISSING!
         })
 
-    ranked_chunks = sorted(scored_chunks, key=lambda x: x['total_score'], reverse=True)
+    ranked_chunks = sorted(scored_chunks, key=lambda x: (x['total_score'], x['upload_timestamp']), reverse=True)
     return ranked_chunks
+
 
 
 def determine_hierarchical_level(metadata: Dict, student: StudentQueryRequest) -> str:
@@ -62,23 +73,47 @@ def determine_hierarchical_level(metadata: Dict, student: StudentQueryRequest) -
 
 
 def calculate_freshness_score(upload_date: str, max_points: int) -> float:
-    """Calculate freshness score based on document age"""
+    """Calculate freshness score based on document age with granular bonus for newer docs"""
     if not upload_date:
         return max_points * 0.1
     try:
         doc_date = datetime.strptime(upload_date, '%Y-%m-%dT%H:%M:%S.%f')
         age_days = (datetime.now() - doc_date).days
+        age_hours = (datetime.now() - doc_date).total_seconds() / 3600
 
+        # Base score by age range
         if age_days <= 30:
-            return max_points
+            base_score = max_points
         elif age_days <= 90:
-            return max_points * 0.75
+            base_score = max_points * 0.75
         elif age_days <= 180:
-            return max_points * 0.5
+            base_score = max_points * 0.5
         elif age_days <= 365:
-            return max_points * 0.25
+            base_score = max_points * 0.25
         else:
-            return max_points * 0.1
+            base_score = max_points * 0.1
+
+        # Granular bonus within each range (newer = slightly higher score)
+        if age_days <= 30:
+            # Within 30 days: bonus based on hours (newer gets up to +2 points)
+            hour_bonus = max(0, (720 - age_hours) / 720 * 2)  # 720 hours = 30 days
+            return min(max_points, base_score + hour_bonus)
+        elif age_days <= 90:
+            # Within 90 days: bonus based on days (newer gets up to +1.5 points)
+            day_bonus = max(0, (90 - age_days) / 90 * 1.5)
+            return min(max_points * 0.75 + 1.5, base_score + day_bonus)
+        elif age_days <= 180:
+            # Within 180 days: bonus based on days (newer gets up to +1 point)
+            day_bonus = max(0, (180 - age_days) / 180 * 1.0)
+            return min(max_points * 0.5 + 1.0, base_score + day_bonus)
+        elif age_days <= 365:
+            # Within 365 days: bonus based on days (newer gets up to +0.5 points)
+            day_bonus = max(0, (365 - age_days) / 365 * 0.5)
+            return min(max_points * 0.25 + 0.5, base_score + day_bonus)
+        else:
+            # Older than 1 year: minimal bonus
+            return base_score
+
     except Exception:
         return max_points * 0.1
 

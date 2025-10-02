@@ -5,6 +5,7 @@ from app.abstract_factory.Embedder.open_ai_embedder import OpenAIEmbedder
 from app.models.chat import ChatRequest, ChatResponse, GeneralKnowledgeResponse, GeneralKnowledgeRequest, StudentQueryRequest, TstStudentQueryResponse, IncompleteQueryResponse
 import os
 from app.services.LLM_Services import LLMServiceManager
+
 from openai import OpenAI
 import re
 
@@ -23,8 +24,8 @@ async def chat_endpoint(request: ChatRequest):
         raise HTTPException(status_code=400, detail="Message cannot be empty.")
     if len(request.message) > 2000:
         raise HTTPException(status_code=400, detail="Message is too long. Please limit to 2000 characters.")
-    if (re.match(r'^[a-zA-Z0-9\s.,!?\'"-]+$', request.message) is None):
-        raise HTTPException(status_code=400, detail="Message contains invalid characters. Please use only letters, numbers, spaces, and basic punctuation.")
+    if any(ord(ch) < 32 for ch in request.message):
+        raise HTTPException(status_code=400, detail="Message contains control characters.")
     
     # Retrieve relevant documents from the vector database
     database = ChromaDB(document_name="example")
@@ -79,6 +80,10 @@ async def chat_endpoint(request: StudentQueryRequest):
     prompt = f"""You are an AI assistant for University of Kelaniya's academic and administrative support system.
 
 TASK: Analyze the user's query and decide how to proceed.
+REWRITING INSTRUCTION: 
+- If the query is valid, produce a HIGH-RECALL rewritten_query optimized for vector similarity search.
+- Correct Grammatical errors, but do not change meaning.
+- Expand only obvious abbreviations according to context and user's courses completed list (e.g. "dept" -> "department", "uni" -> "university")
 
 USER PROFILE:
 - Batch: {request.batch}
@@ -109,8 +114,8 @@ DECISION RULES:
    - Dating advice, personal relationships
    - Entertainment recommendations (movies, games)
    - Cooking recipes, travel plans
-   - Medical advice, legal advice
    - Weather, news, sports scores
+   - For any other information need, return "success"
    
 3. "incomplete" - If query is too vague (like "help", "what?", "tell me more" without context)
 
@@ -255,16 +260,9 @@ Respond in JSON format:
                 academic_chunks, non_academic_chunks = dbInstance.retrieve_similar_with_metadata(
                     query_embedding, 
                     request, 
-                    top_k=5,
+                    top_k=7,
                     similarity_threshold=0.3
                 )
-
-                print(f"Retrieved - Academic: {len(academic_chunks)}, Non-Academic: {len(non_academic_chunks)}")
-                if non_academic_chunks:
-                    print(f"Sample0000000000000000000000000000000000000 Non-Academic Chunk Metadata: {"\n\n".join(non_academic_chunks)} ____00000000000000000000000")
-                if academic_chunks:
-                    print(f"Sample0000000000000000000000000000000000000 Academic Chunk Metadata: {"\n\n".join(academic_chunks)} ____00000000000000000000000")
-
                 # Now you can pass them separately to LLM
                 if academic_chunks or non_academic_chunks:
                     # Create separate contexts
@@ -277,11 +275,8 @@ Respond in JSON format:
                         non_academic_context=non_academic_context,
                         studentMetadata=request
                     )
-                    
-                   
-                    
-                    print("///////////////////////////////////////////////////////////////////////////////////////////////")   
-                    return TstStudentQueryResponse( 
+
+                    return TstStudentQueryResponse(
                         model=llm_response.get("model", model),
                         question=request.message,
                         answer=llm_response.get("answer", "No answer generated."),
