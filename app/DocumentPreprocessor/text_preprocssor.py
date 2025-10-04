@@ -26,7 +26,7 @@ class TextPreprocessor:
         
         # Basic stopwords to remove
         basic_stopwords = {
-            "the", "a", "an", "and", "in", "on", "at", "to", "for", "of", "by", "about", "into", "through", "during", "above", 
+            "the", "a", "an", "and", "in", "on", "at", "to", "for", "of", "by", "about", "into", "through", "above", 
             "below", "between", "among", "this", "that", "these", "those", "i", "me", "my",
             "myself", "we", "our", "ours", "ourselves",  "yourself",
             "yourselves", "he", "him", "his", "himself", "she", "her", "hers", "herself",

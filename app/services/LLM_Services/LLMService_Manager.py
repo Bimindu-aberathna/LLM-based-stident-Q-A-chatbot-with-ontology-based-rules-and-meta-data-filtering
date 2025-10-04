@@ -178,5 +178,77 @@ Respond in JSON format:
     
     def _format_retrieved_context(self, academic_context: str, non_academic_context: str) -> str:
         """Format retrieved contexts into a structured format."""
-        # This method is no longer needed as we handle contexts separately in the new prompt
         return ""
+    
+    def generate_baseline_response(
+        self, 
+        question: str, 
+        context: str
+    ) -> Dict[str, Any]:
+        """
+        Generate a response for the student query using a baseline prompt.
+        
+            Args:
+                question: The student's question
+                context: Combined context from RAG retrieval
+            Returns:
+                Dict containing the formatted response
+        """
+        # Prompt for baseline
+        prompt = f"""You are a university academic advisor. Answer the student's question using only the provided information.
+        CONTEXT:
+        {context if context.strip() else "No academic information found."}
+
+
+        INSTRUCTIONS:
+        - Use ONLY the information provided in above CONTEXT. If necessary information is missing, respond with "Database do not have sufficient information. Please contact the university administration for further assistance."
+        - Always respond in JSON format with 'answer' and 'status' fields. 
+        - Make sure 'answer' is a single string, not a list or array.
+        - Never make up answers or use external knowledge
+        - If the answer is not in the provided context, respond with "Database do not have sufficient information. Please contact the university administration for further assistance."
+        - If information is missing or unclear, say so.
+        - Be direct and specific.
+        - Course codes like "INTE 12553": INTE=department, 1=year, 2=semester, 3=credits.
+
+        QUESTION: {question}
+
+        Respond in JSON format:
+        {{"answer": "your response here", "status": "complete/insufficient"}}"""
+        
+        try:
+            # Get response from LLM
+            llm_response = self.llm_generator.GenerateResponse(prompt)
+            
+            if llm_response.get("success", True):
+                response_data = llm_response.get("response", llm_response)
+                
+                # Handle different response formats
+                if isinstance(response_data, dict):
+                    answer = response_data.get("answer", str(response_data))
+                    status = response_data.get("status", "complete")
+                else:
+                    answer = str(response_data)
+                    status = "complete"
+                
+                return {
+                    "success": True,
+                    "answer": answer,
+                    "status": status,
+                    "model": llm_response.get("model", "gpt-3.5-turbo"),
+                    "usage": llm_response.get("usage", {})
+                }
+            else:
+                return {
+                    "success": False,
+                    "answer": "I apologize, but I encountered an error while processing your request. Please try again.",
+                    "status": "error",
+                    "error": llm_response.get("error", "Unknown error")
+                }
+                
+        except Exception as e:
+            return {
+                "success": False,
+                "answer": "I apologize, but I encountered an unexpected error. Please try again later.",
+                "status": "error",
+                "error": str(e)
+            }

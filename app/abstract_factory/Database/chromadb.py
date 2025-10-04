@@ -144,6 +144,80 @@ class ChromaDB(VectorStore):
             'distances': [filtered_distances] if filtered_distances else []
         }
 
+
+    def baseline_retriever(self, query_vector: List[float], studentMetadata: StudentQueryRequest, top_k: int = 10, similarity_threshold: float = 0.7) -> List[str]:
+        """
+        Retrieve similar chunks without rule-based metadata filtering BUT with similarity threshold for the baseline system
+        Returns: List of document chunks
+        """
+        try:
+            # Debug: Check collection contents
+            collection_count = self.collection.count()
+            if collection_count == 0:
+                return []
+            
+            # Get more results initially to account for filtering
+            search_k = min(top_k * 8, 100)  # Increased for better filtering
+            
+            results = self.collection.query(
+                query_embeddings=[query_vector],
+                n_results=search_k,
+                include=['documents', 'distances']  # Include distances for similarity scores
+            )
+            
+            if not results['documents'] or len(results['documents']) == 0:
+                print("No documents returned from similarity search")
+                return []
+            
+            # Apply similarity threshold filtering
+            base_similarity_filtered_results = self._baseline_apply_similarity_threshold(results, similarity_threshold)
+
+            if not base_similarity_filtered_results['documents'] or len(base_similarity_filtered_results['documents']) == 0:
+                print("No documents passed similarity threshold")
+                return []
+            
+            # Get all the documents as a single string list
+            all_chunks = base_similarity_filtered_results['documents'][0]
+
+            # Return top_k chunks
+            return all_chunks[:top_k]
+        except Exception as e:
+            logging.error(f"Error in baseline_retriever: {str(e)}")
+            print(f"Exception in baseline_retriever: {str(e)}")
+            return []
+        
+    def _baseline_apply_similarity_threshold(self, results: Dict, threshold: float) -> Dict:
+        """
+        Filter results by similarity threshold
+        ChromaDB returns distances, need to convert to similarity scores
+        """
+        if not results['documents'] or len(results['documents']) == 0:
+            return {'documents': [], 'distances': []}
+        
+        filtered_documents = []
+        filtered_distances = []
+        
+        documents = results['documents'][0]
+        distances = results['distances'][0] if results['distances'] else []
+        
+        print(f"\n=== BASELINE SIMILARITY THRESHOLD FILTERING ===")
+        print(f"Threshold: {threshold}")
+        
+        for i, (doc, distance) in enumerate(zip(documents, distances)):
+            # Convert distance to similarity score
+            # ChromaDB with cosine distance: similarity = 1 - distance
+            similarity_score = 1.0 - distance
+            
+            print(f"Document {i+1}: similarity = {similarity_score:.3f} ({'PASS' if similarity_score >= threshold else 'REJECT'})")
+            
+            if similarity_score >= threshold:
+                filtered_documents.append(doc)
+                filtered_distances.append(distance)
+        
+        return {
+            'documents': [filtered_documents] if filtered_documents else [],
+            'distances': [filtered_distances] if filtered_distances else []
+        }
     
 
         
