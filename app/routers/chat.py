@@ -4,7 +4,9 @@ from app.abstract_factory.Database.chromadb import ChromaDB
 from app.abstract_factory.Embedder.open_ai_embedder import OpenAIEmbedder
 from app.models.chat import ChatRequest, ChatResponse, GeneralKnowledgeResponse, GeneralKnowledgeRequest, StudentQueryRequest, TstStudentQueryResponse, IncompleteQueryResponse
 import os
+import pandas as pd
 from app.services.LLM_Services import LLMServiceManager
+from app.services.data_logger import DataLogger
 
 from openai import OpenAI
 import re
@@ -205,12 +207,15 @@ Respond in JSON format:
                         message="Error generating query embeddings."
                     )
                 dbInstance = ChromaDB()
-                academic_chunks, non_academic_chunks = dbInstance.retrieve_similar_with_metadata(
+                academic_chunks, non_academic_chunks, ext_docs, ext_doc_names = dbInstance.retrieve_similar_with_metadata(
                     query_embedding, 
                     request, 
-                    top_k=7,
+                    top_k=10,
                     similarity_threshold=0.3
                 )
+                # if academic_chunks:
+                #     for i, chunk in enumerate(academic_chunks):
+                #         print(f"💩💩💩💩Academic Chunk {i+1}: {chunk}💩💩💩")  # Print first 100 chars
                 # Now you can pass them separately to LLM
                 if academic_chunks or non_academic_chunks:
                     # Create separate contexts
@@ -223,6 +228,21 @@ Respond in JSON format:
                         non_academic_context=non_academic_context,
                         studentMetadata=request
                     )
+                    
+                    # save evaluation data to CSV
+                    try:
+                        data_logger = DataLogger()
+                        data_logger.log_evaluation_data(
+                            eval_type="enhanced",
+                            llm_response=llm_response,
+                            document_names=ext_doc_names,
+                            data_chunks=ext_docs,
+                            message=request.message
+                        )
+                    except Exception as log_error:
+                        print(f"Data Logger Error: {log_error}")
+                   
+                    
 
                     return TstStudentQueryResponse(
                         model=llm_response.get("model", model),
@@ -233,6 +253,19 @@ Respond in JSON format:
                     )             
                 else:
                     answer_message = "No relevant documents found for your query. The database might be empty or no documents match your criteria."
+                    
+                try:
+                    data_logger = DataLogger()
+                    data_logger.log_evaluation_data(
+                    eval_type="baseline",
+                    llm_response=llm_response,
+                    document_names=ext_doc_names,
+                    data_chunks=ext_docs,
+                    message=request.message
+                    )
+                except Exception as log_error:
+                        print(f"Data Logger Error: {log_error}")
+                   
                 
                 return TstStudentQueryResponse(
                     model=model,
@@ -412,10 +445,10 @@ Respond in JSON format:
                         message="Error generating query embeddings."
                     )
                 dbInstance = ChromaDB()
-                data_chunks = dbInstance.baseline_retriever(
+                data_chunks, document_names = dbInstance.baseline_retriever(
                     query_embedding, 
                     request, 
-                    top_k=7,
+                    top_k=10,
                     similarity_threshold=0.3
                 )
                 # Now you can pass them separately to LLM
@@ -427,6 +460,101 @@ Respond in JSON format:
                         question=request.message,
                         context=context
                     )
+                    # try:
+                        
+                    #     csv_path = "evaluation/evaluation_responses.csv"
+                        
+                    #     # Ensure the evaluation directory exists
+                    #     os.makedirs(os.path.dirname(csv_path), exist_ok=True)
+                        
+                    #     # Check if CSV file exists, if not create it with headers
+                    #     if not os.path.exists(csv_path):
+                    #         headers = [
+                    #             "Question_ID", "System_Variant", "Question_Text", "Reference_Answer",
+                    #             "System_Answer_Text", "Ground_Truth_Doc_Names", "Retrieved_Doc_Names_Ordered",
+                    #             "Retrieved_Chunks_Text", "Human_Relevance_Score_1_5", "Human_Accuracy_Score_1_5",
+                    #             "Human_Completeness_Score_1_5", "Human_Hallucination_Present", "Notes(Not mandatory)"
+                    #         ]
+                    #         df = pd.DataFrame(columns=headers)
+                    #         df.to_csv(csv_path, index=False, encoding='utf-8')
+                        
+                    #     # Read existing CSV with explicit encoding handling
+                    #     try:
+                    #         df = pd.read_csv(csv_path, encoding='utf-8')
+                    #     except UnicodeDecodeError:
+                    #         # Try different encodings if UTF-8 fails
+                    #         try:
+                    #             df = pd.read_csv(csv_path, encoding='latin-1')
+                    #         except UnicodeDecodeError:
+                    #             # If all else fails, recreate the file
+                    #             print("CSV file appears corrupted, recreating...")
+                    #             headers = [
+                    #                 "Question_ID", "System_Variant", "Question_Text", "Reference_Answer",
+                    #                 "System_Answer_Text", "Ground_Truth_Doc_Names", "Retrieved_Doc_Names_Ordered",
+                    #                 "Retrieved_Chunks_Text", "Human_Relevance_Score_1_5", "Human_Accuracy_Score_1_5",
+                    #                 "Human_Completeness_Score_1_5", "Human_Hallucination_Present", "Notes(Not mandatory)"
+                    #             ]
+                    #             df = pd.DataFrame(columns=headers)
+                        
+                    #     # Clean the text data to ensure it's properly encoded
+                    #     def clean_text(text):
+                    #         if isinstance(text, str):
+                    #             # Remove or replace problematic characters
+                    #             return text.encode('utf-8', errors='ignore').decode('utf-8')
+                    #         return text
+                        
+                    #     # Find the row where Question_Text = request.message & System_Variant = "baseline"
+                    #     mask = (df['Question_Text'] == request.message) & (df['System_Variant'] == 'baseline')
+                    #     matching_rows = df[mask]
+                        
+                    #     if len(matching_rows) > 0:
+                    #         # Update existing row
+                    #         row_index = matching_rows.index[0]
+                    #         df.at[row_index, 'System_Answer_Text'] = clean_text(llm_response.get("answer", "No answer generated."))
+                    #         df.at[row_index, 'Retrieved_Doc_Names_Ordered'] = clean_text(" | ".join(document_names) if document_names else "")
+                    #         df.at[row_index, 'Retrieved_Chunks_Text'] = clean_text("\n---CHUNK_SEPARATOR---\n".join(data_chunks) if data_chunks else "")
+                    #         print(f"Updated existing row {row_index} for baseline evaluation")
+                    #     else:
+                    #         # Create new row
+                    #         new_row = {
+                    #             'Question_ID': '',  # Will be filled manually
+                    #             'System_Variant': 'baseline',
+                    #             'Question_Text': clean_text(request.message),
+                    #             'Reference_Answer': '',  # Will be filled manually
+                    #             'System_Answer_Text': clean_text(llm_response.get("answer", "No answer generated.")),
+                    #             'Ground_Truth_Doc_Names': '',  # Will be filled manually
+                    #             'Retrieved_Doc_Names_Ordered': clean_text(" | ".join(document_names) if document_names else ""),
+                    #             'Retrieved_Chunks_Text': clean_text("\n---CHUNK_SEPARATOR---\n".join(data_chunks) if data_chunks else ""),
+                    #             'Human_Relevance_Score_1_5': '',  # Will be filled manually
+                    #             'Human_Accuracy_Score_1_5': '',  # Will be filled manually
+                    #             'Human_Completeness_Score_1_5': '',  # Will be filled manually
+                    #             'Human_Hallucination_Present': '',  # Will be filled manually
+                    #             'Notes(Not mandatory)': ''  # Will be filled manually
+                    #         }
+                            
+                    #         # Add new row to dataframe
+                    #         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+                    #         print(f"Created new row for baseline evaluation")
+                        
+                    #     # Save back to CSV with explicit UTF-8 encoding
+                    #     df.to_csv(csv_path, index=False, encoding='utf-8')
+                    #     print(f"Successfully logged evaluation data to {csv_path}")
+
+                    # except Exception as eval_error:
+                    #     print(f"Evaluation Logging Error: {eval_error}")
+                    
+                    try:
+                        data_logger = DataLogger()
+                        data_logger.log_evaluation_data(
+                            eval_type="baseline",
+                            llm_response=llm_response,
+                            document_names=document_names,
+                            data_chunks=data_chunks,
+                            message=request.message
+                        )
+                    except Exception as log_error:
+                        print(f"Data Logger Error: {log_error}")
+                        
 
                     return TstStudentQueryResponse(
                         model=llm_response.get("model", model),
@@ -437,7 +565,18 @@ Respond in JSON format:
                     )             
                 else:
                     answer_message = "No relevant documents found for your query. The database might be empty or no documents match your criteria."
-                
+                try:
+                    data_logger = DataLogger()
+                    data_logger.log_evaluation_data(
+                        eval_type="baseline",
+                        llm_response=llm_response,
+                        document_names=document_names,
+                        data_chunks=data_chunks,
+                        message=request.message
+                    )
+                except Exception as log_error:
+                    print(f"Data Logger Error: {log_error}")   
+
                 return TstStudentQueryResponse(
                     model=model,
                     question=request.message,
@@ -469,3 +608,4 @@ Respond in JSON format:
     except Exception as e:
         print(f"General Error: {e}")
         raise HTTPException(status_code=500, detail=f"OpenAI request failed: {str(e)}")
+

@@ -27,7 +27,8 @@ except ImportError:
 def apply_rule_based_filters(
     results: Dict,
     studentMetadata: StudentQueryRequest,
-    collection=None  # Add collection parameter for neighbor retrieval
+    collection=None,  # Add collection parameter for neighbor retrieval
+    top_k: int = 10
 ) -> Tuple[List[str], List[str]]:
     """
     Apply strict rule-based filtering with hierarchical ranking for non-academic documents
@@ -77,7 +78,7 @@ def apply_rule_based_filters(
     
     # Apply hierarchical ranking to non-academic chunks
     if non_academic_chunks:
-        ranked_non_academic = apply_hierarchical_ranking(non_academic_chunks, studentMetadata)
+        ranked_non_academic = apply_hierarchical_ranking(non_academic_chunks[:top_k], studentMetadata)
     else:
         ranked_non_academic = []
     
