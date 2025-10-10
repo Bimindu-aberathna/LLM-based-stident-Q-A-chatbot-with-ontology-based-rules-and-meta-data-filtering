@@ -145,6 +145,9 @@ async def upload_academic_document(
                 # Reference
                 "link": link,
                 "upload_date": datetime.now().isoformat()
+                
+                # For testing purposes set upload date day before
+                # "upload_date": (datetime.now() - timedelta(days=1)).isoformat()
             } for i in range(len(chunks))
         ]
         
