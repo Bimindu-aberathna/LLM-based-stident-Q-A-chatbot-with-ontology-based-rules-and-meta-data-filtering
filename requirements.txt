@@ -3,9 +3,17 @@ fastapi==0.104.1
 uvicorn[standard]==0.24.0
 python-multipart==0.0.6
 
-# OpenAI and LangChain (use OpenAI embeddings instead of local models)
+# OpenAI and LangChain
 openai>=1.40.0,<2.0.0
 langchain-openai>=0.1.10
+
+# NLP and Embeddings (REQUIRED - used by TextPreprocessor)
+sentence-transformers==2.2.2
+transformers==4.35.0
+
+# PyTorch CPU-only version (much faster to install than CUDA version)
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.1.0+cpu
 
 # Vector Database
 chromadb==0.4.15
@@ -15,7 +23,7 @@ PyMuPDF==1.23.8
 python-docx==1.1.0
 PyPDF2>=3.0.0
 
-# NLP Processing (lighter version)
+# NLP Processing
 spacy==3.7.2
 https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1.tar.gz
 nltk==3.8.1
