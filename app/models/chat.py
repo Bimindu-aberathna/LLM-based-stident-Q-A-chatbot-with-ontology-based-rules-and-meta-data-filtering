@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from typing import Optional
 
 class ChatRequest(BaseModel):
     message: str
@@ -25,6 +26,7 @@ class StudentQueryRequest(BaseModel):
     specialization: str
     course_codes: list[str] = []
     courses_done: list[str] = []
+    Q_id: str
     
     
 class TstStudentQueryResponse(BaseModel):
@@ -32,6 +34,8 @@ class TstStudentQueryResponse(BaseModel):
     question: str
     answer: str
     status: str
+    source_lst: Optional[str] = None
+    documents: Optional[str] = None
     
 class IncompleteQueryResponse(BaseModel):
     answer: str

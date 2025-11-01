@@ -43,3 +43,15 @@ class ClearDBResponse(BaseModel):
     
 class LongTextResponse(BaseModel):
     detail: str
+    
+class cleanStringRequest(BaseModel):
+    string: str
+
+class cleanStringResponse(BaseModel):
+    string: str
+    
+class ChunkDocumentRequest(BaseModel):
+    file: UploadFile
+class ChunkDocumentResponse(BaseModel):
+    success: bool
+    smart_chunks: list[str]

@@ -6,7 +6,7 @@ import json
 from fastapi.responses import PlainTextResponse
 
 from app.abstract_factory.Database.chromadb import ChromaDB
-from app.models.document import DocumentUploadResponse, LongTextResponse, UploadAcademicDocument, UploadNonAcademicDocument, ChunkingTestResponse, ClearDBResponse
+from app.models.document import ChunkDocumentResponse, DocumentUploadResponse, LongTextResponse, UploadAcademicDocument, UploadNonAcademicDocument, ChunkingTestResponse, ClearDBResponse, cleanStringResponse, cleanStringRequest
 from app.services.document_service import process_pdf
 from app.DocumentPreprocessor.pdf_extractor import PDFExtractor
 from app.DocumentPreprocessor.docx_extractor import DocxExtractor
@@ -346,3 +346,47 @@ async def debug_chroma():
         return debug_info  # Return the string directly
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error debugging ChromaDB: {str(e)}")
+
+@router.post("/clean_string", response_model=cleanStringResponse)
+async def clean_string(request: cleanStringRequest):
+    """Endpoint to clean a string."""
+    try:
+        preprocessor = TextPreprocessor()
+        cleaned_text = preprocessor.clean_text(request.string)
+        processed_text = preprocessor.nlp_process(cleaned_text)
+        return cleanStringResponse(string=processed_text)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error cleaning string: {str(e)}")
+    
+@router.post("/chunk_document", response_model=ChunkDocumentResponse)
+async def upload_academic_document(
+    file: UploadFile = File(...)
+):
+    
+    if not file.filename.endswith(('.pdf', '.docx')):
+        raise HTTPException(status_code=400, detail="Only PDF and DOCX files are allowed")
+
+    try:
+       
+
+        # Extract and process document
+        extractor = PDFExtractor(file) if file.filename.endswith('.pdf') else DocxExtractor(file)
+        text_content = extractor.extract_text()
+        
+        # Preprocess text
+        preprocessor = TextPreprocessor()
+        text_content = preprocessor.clean_text(text_content)
+        text_content = preprocessor.nlp_process(text_content)
+        # chunks = preprocessor.chunk_text(text_content)
+        chunks = preprocessor.smart_chunk_text(text_content)
+        
+        
+        return ChunkDocumentResponse(
+            success=True,
+            smart_chunks=chunks
+        )
+        
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON format in batches_affecting")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing document: {str(e)}")

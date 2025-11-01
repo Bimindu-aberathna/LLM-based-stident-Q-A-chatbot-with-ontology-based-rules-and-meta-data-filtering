@@ -191,6 +191,9 @@
             font-weight: 600;
             color: #555;
             min-width: 80px;
+            display: flex;
+            flex-direction: row;
+            gap: 10px;
         }
 
         .response-value {
@@ -294,9 +297,99 @@
         .slider.round:before {
         border-radius: 50%;
         }
+        .toast-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+            border-radius: 25px;
+            background-color: #1ba83c;
+            padding: 5px 15px;
+            display: none;
+        }
+        .toast {
+            color: white;
+            font-weight: 600;
+        }
     </style>
 </head>
 <body>
+    <script>
+        const student_1 = {
+            batch: "2020/21",
+            department: "Industrial Management",
+            faculty: "Science",
+            degree_program: "Bsc(Hons) Information Technology",
+            current_year: "4",
+            current_sem: "2",
+            specialization: "",
+            course_codes: [
+                "ACLT 11013", "CMSK 14042", "DELT 11232", "GNCT 11212", "GNCT 12212", 
+                "INTE 11213", "INTE 12223", "INTE 12213", "INTE 12223", "INTE 12232", 
+                "MGTE 11202", "MGTE 11213", "MGTE 11222", "MGTE 12222", "MGTE 12232", 
+                "MGTE 12253", "PMAT 11212", "PMAT 12212", "DELT 21222", "GNCT 21212", 
+                "GNCT 22212", "INTE 21213", "INTE 21233", "INTE 21243", "INTE 21263", 
+                "INTE 21273", "INTE 21292", "INTE 22212", "INTE 22242", "INTE 22283", 
+                "INTE 22293", "INTE 22303", "INTE 22313", "MGTE 22242", "INTE 12522","GNCT 32216", "INTE 31213", "INTE 31233", "INTE 31243", "INTE 31273", "INTE 31283", "INTE 31356", "MGTE 31212", "MGTE 31222", "INTE 41292", "INTE 41302", "INTE 41323", "INTE 41333", "INTE 41352", "INTE 42252", "INTE 43216", "INTE 44343", "MGTE 41212", "MGTE 42292", "MGTE 44273"
+            ],
+            courses_done: [
+                "ACADEMIC LITERACY I", "INTRODUCTION TO COMPUTER HARDWARE AND CONSUMER ELECTRONICS",
+                "ENGLISH FOR PROFESSIONALS", "PERSONAL PROGRESS DEVELOPMENT I",
+                "PROBLEM SOLVING AND CRITICAL THINKING", "FUNDAMENTALS OF COMPUTING",
+                "PROGRAMMING CONCEPTS", "OBJECT ORIENTED PROGRAMMING",
+                "DATABASE DESIGN AND DEVELOPMENT", "COMPUTER NETWORK I",
+                "ECONOMICS", "STATISTICS", "PRINCIPLES OF MANAGEMENT",
+                "OPTIMIZATION METHODS IN MANAGEMENT SCIENCE I", "INDUSTRY AND TECHNOLOGY",
+                "ACCOUNTING CONCEPTS AND COSTING", "MATHEMATICS FOR COMPUTING I",
+                "MATHEMATICS FOR COMPUTING II", "COMMUNICATION SKILLS FOR PROFESSIONALS",
+                "PERSONAL PROGRESS DEVELOPMENT II", "TECHNICAL WRITING",
+                "INFORMATION SYSTEMS MODELLING", "WEB APPLICATION DEVELOPMENT I",
+                "COMPUTER ARCHITECTURE AND OPERATING SYSTEMS", "DATA STRUCTURES AND ALGORITHMS",
+                "DATA SCIENCE", "INFORMATION SECURITY I", "SOFTWARE DESIGN PATTERNS AND FRAMEWORKS",
+                "WEB APPLICATIONS DEVELOPMENT II", "MOBILE APPLICATIONS DEVELOPMENT",
+                "SOFTWARE ARCHITECTURE AND PROCESS MODELS", "ARTIFICIAL INTELLIGENCE",
+                "INTERACTIVE APPLICATIONS DEVELOPMENT", "STATISTICAL DATA MODELLING",
+"INTERNSHIP", "ADVANCED DATABASES", "HUMAN COMPUTER INTERACTION", "SOFTWARE QUALITY ENGINEERING", "SYSTEM INTEGRATION TECHNOLOGIES - 1", "BIG DATA AND DATA WAREHOUSING", "SOFTWARE DEVELOPMENT PROJECT", "PROJECT MANAGEMENT", "RESEARCH METHODS", "MOBILE COMPUTING", "GEOGRAPHICAL INFORMATION SYSTEMS", "NEURAL NETWORKS AND DEEP LEARNING", "DATA MINING AND APPLIED ANALYTICS", "SYSTEM INTEGRATION TECHNOLOGIES - 2", "SEMANTIC WEB AND ONTOLOGICAL ENGINEERING", "RESEARCH PROJECT", "", "PROFESSIONAL PRACTICES", "BUSINESS AND INFORMATION TECHNOLOGY LAW", "INNOVATION & ENTREPRENEURSHIP"
+            ]
+        };
+
+        const student_2 = {
+            batch: "2019/20",
+            department: "DSE",
+            faculty: "Computing and Technology",
+            degree_program: "Bsc(Hons) Information & Communication Technology",
+            current_year: "4",
+            current_sem: "2",
+            specialization: "",
+            course_codes: ["CTEC11052", "CTEC11063", "GTEC11013", "GTEC11023", "GTEC11041", 
+ "CTEC12052", "CTEC12073", "DELT13522", "GTEC12013", "GTEC12023", 
+ "GTEC12033", "GTEC12033", "GTEC12062", "GTEC13032", "CTEC21042", 
+ "CTEC21052", "CTEC21063", "DELT21512", "GTEC21023", "GTEC21023", 
+ "GTEC21023", "GTEC21043", "LNPR21072", "CTEC22023", "CTEC22023", 
+ "CTEC22032", "CTEC22043", "CTEC22053", "CTEC22061", "DELT22552", 
+ "GTEC22033", "GTEC23032", "LNPR22072", "CTEC31013", "CTEC31013", 
+ "CTEC31023", "CTEC31032", "CTEC31042", "ENPR31042", "SWST31022", 
+ "SWST31032", "SWST31032", "CTEC32012", "GTEC32012", "SWST32012", 
+ "SWST32022", "SWST32033", "SWST32043"]
+
+,
+            courses_done: ["STRUCTURED PROGRAMMING I","COMPUTER SYSTEMS ORGANIZATION","MATHEMATICS FOR TECHNOLOGY I","PHYSICS FOR TECHNOLOGY - I","ENGINEERING DRAWING WITH CAD I","DATA COMMUNICATION AND NETWORKING","STRUCTURED PROGRAMMING II","ENGLISH FOR COMPUTING AND TECHNOLOGY","MATHEMATICS FOR TECHNOLOGY II","PHYSICS FOR TECHNOLOGY II","FUNDAMENTALS PRACTICES IN TECHNOLOGY","FUNDAMENTALS PRACTICES IN TECHNOLOGY","STATISTICS FOR TECHNOLOGY","PROJECTS IN TECHNOLOGY I","WEB PROGRAMMING I","INTRODUCTION TO CYBER SECURITY","DATABASE SYSTEMS","ENGLISH FOR THE WORLD","FUNDAMENTALS OF ELECTRONICS","FUNDAMENTALS OF ELECTRONICS","FUNDAMENTALS OF ELECTRONICS","MATHEMATICS FOR TECHNOLOGY - III","JAPANESE LANGUAGE - I","DATA STRUCTURES & ALGORITHMS","DATA STRUCTURES & ALGORITHMS","SOFTWARE ENGINEERING","OBJECT ORIENTED PROGRAMMING","COMPUTER ARCHITECTURE & OPERATING SYSTEMS","SYSTEMS AND NETWORK LABORATORY","ENGLISH FOR TECHNOLOGY","MATHEMATICS FOR TECHNOLOGY - IV","PROJECTS IN TECHNOLOGY - II","JAPANESE LANGUAGE II","WEB PROGRAMMING II","WEB PROGRAMMING II","MOBILE APPLICATION DEVELOPMENT","ICT FOR BUSINESS","PYTHON PROGRAMMING","PRINCIPLES AND PRACTICES OF MANAGEMENT AND TECHNOLOGY MANAGEMENT","REQUIREMENTS ENGINEERING","APPLIED INFORMATION SYSTEMS","APPLIED INFORMATION SYSTEMS","HUMAN COMPUTER INTERACTION","PROJECT MANAGEMENT","SYSTEMS ANALYSIS AND DESIGN","QUALITY ASSURANCE","ADVANCED DATABASES","SOFTWARE ARCHITECTURE AND CONCEPTS"]
+
+        };
+        const student_3 = {
+            batch: "2022/23",
+            department: "Medicine",
+            faculty: "Medicine",
+            degree_program: "MBBS",
+            current_year: "2",
+            current_sem: "2",
+            specialization: "",
+            course_codes: ["BASS2204","BASS2203","BASS2203R","BASS2206","CHS2204","CHS2201","CHS2201N","PDFM2204","FAM2202","CSS2204","INTG2208"]
+,
+            courses_done: ["Blood, Lymph and Immune System (BASS)","Endocrine System (BASS)","Reproductive System (BASS)","Alimentary System & Nutrition (BASS)","Basic Epidemiology, Biostatistics & Research Methods (CHS)","Primary Health Care (CHS)","Nutrition (integrated, CHS)","Professional Development (PDFM, Phase II)","Family Medicine module & clinical attachment (FAM)","Clinical Skills — Simulation & Basics (CSS)","Integrated practicals / lab classes & assessments (year-2 integration)"]
+
+        };
+    </script>
     <div class="container">
         <div class="header">
             <h1>🎓 Academic Query System</h1>
@@ -305,6 +398,46 @@
 
         <div class="content">
             <form id="queryForm">
+                <div class="section-title">Student Preset</div>
+
+                <div class="form-group">
+                    <label for="student_preset">Select Student Preset</label>
+                    <select id="student_preset">
+                        <option value="">-- Select a preset --</option>
+                        <option value="student_1">Industrial Management- 4th year</option>
+                        <option value="student_2">Student 2 - ICT 4th year</option>
+                        <option value="student_3">Medicine 2nd year</option>
+                    </select>
+                </div>
+
+                <script>
+                    document.getElementById('student_preset').addEventListener('change', function() {
+                        const preset = this.value;
+                        let studentData = null;
+
+                        if (preset === 'student_1') {
+                            studentData = student_1;
+                        } else if (preset === 'student_2') {
+                            studentData = student_2;
+                        } else if (preset === 'student_3') {
+                            studentData = student_3;
+                        }
+
+                        if (studentData) {
+                            document.getElementById('batch').value = studentData.batch;
+                            document.getElementById('department').value = studentData.department;
+                            document.getElementById('faculty').value = studentData.faculty;
+                            document.getElementById('degree_program').value = studentData.degree_program;
+                            document.getElementById('current_year').value = studentData.current_year;
+                            document.getElementById('current_sem').value = studentData.current_sem;
+                            document.getElementById('specialization').value = studentData.specialization;
+                            document.getElementById('course_codes').value = studentData.course_codes.join(', ');
+                            document.getElementById('courses_done').value = studentData.courses_done.join(', ');
+                        }
+                    });
+                </script>
+
+                
                 <div class="section-title">Student Information</div>
                 
                 <div class="form-grid">
@@ -359,6 +492,11 @@
                 <div class="section-title">Your Question</div>
 
                 <div class="form-group">
+                    <label for="q_id">Q_ID</label>
+                    <input type="text" id="q_id" placeholder="e.g., Q001-1" value="Q001-1">
+                </div>
+
+                <div class="form-group">
                     <label for="message">Message</label>
                     <textarea id="message" placeholder="e.g., Is october 10th a holiday or not for the Industrial management department?">Is october 10th a holiday or not for the Industrial management department</textarea>
                 </div>
@@ -381,6 +519,11 @@
                 <div class="spinner"></div>
                 <p>Processing your query...</p>
             </div>
+            <div class="toast-container">
+                    <div class="toast" id="toast">
+                        Copied to clipboard!
+                    </div>
+                </div>
 
             <div class="error" id="error"></div>
 
@@ -390,6 +533,7 @@
                     <span class="response-label">Model:</span>
                     <span class="response-value" id="responseModel">-</span>
                 </div>
+                
                 <div class="response-item">
                     <span class="response-label">Question:</span>
                     <span class="response-value" id="responseQuestion">-</span>
@@ -399,13 +543,63 @@
                     <span class="response-value" id="responseStatus">-</span>
                 </div>
                 <div class="response-item" style="display: block;">
-                    <span class="response-label">Answer:</span>
+                    <span class="response-label">
+                        <p>Answer:</p>
+                        <input type="button" value="Copy" onclick="copyAnswer()" style="padding: 5px 10px; font-size: 12px; cursor: pointer; margin-left: 10px;">
+                    </span>
                     <div class="response-value" id="responseAnswer" style="margin-top: 10px; padding: 15px; background: white; border-radius: 10px; line-height: 1.6;">-</div>
+                </div>
+                <div class="response-item" style="display: block;">
+                    <span class="response-label">
+                        <p>File names:</p>
+                        <input type="button" value="Copy" onclick="copyFileNames()" style="padding: 5px 10px; font-size: 12px; cursor: pointer; margin-left: 10px;">
+                    </span>
+                    <div class="response-value" id="responseFileNames" style="margin-top: 10px; padding: 15px; background: white; border-radius: 10px; line-height: 1.6;">-</div>
+                </div>
+                <div class="response-item" style="display: block;">
+                    <span class="response-label">
+                        <p>Retrieved chunks:</p>
+                        <input type="button" value="Copy" onclick="copyChunks()" style="padding: 5px 10px; font-size: 12px; cursor: pointer; margin-left: 10px;">
+                    </span>
+                    <div class="response-value" id="responseChunks" style="margin-top: 10px; padding: 15px; background: white; border-radius: 10px; line-height: 1.6;">-</div>
                 </div>
             </div>
         </div>
     </div>
 
+    <script>
+        function copyAnswer() {
+            const answerText = document.getElementById('responseAnswer').textContent;
+            navigator.clipboard.writeText(answerText).then(() => {
+                showToast('Answer copied to clipboard!');
+            });
+        }
+
+
+        function copyFileNames() {
+            const fileNamesText = document.getElementById('responseFileNames').textContent;
+            navigator.clipboard.writeText(fileNamesText).then(() => {
+                showToast('File names copied to clipboard!');
+            });
+        }
+
+        function copyChunks() {
+            const chunksText = document.getElementById('responseChunks').textContent;
+            navigator.clipboard.writeText(chunksText).then(() => {
+                showToast('Retrieved chunks copied to clipboard!');
+            });
+        }
+        function showToast(message) {
+            const toastContainer = document.querySelector('.toast-container');
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toastContainer.style.display = 'block';
+        
+            setTimeout(() => {
+                toastContainer.style.display = 'none';
+            }, 1500);
+        }
+    </script>
     <script>
         const form = document.getElementById('queryForm');
         const submitBtn = document.getElementById('submitBtn');
@@ -445,6 +639,7 @@
                 specialization: document.getElementById('specialization').value,
                 course_codes: courseCodes,
                 courses_done: coursesDone,
+                Q_id: document.getElementById('q_id').value,
                 message: document.getElementById('message').value
             };
 
@@ -471,6 +666,21 @@
                 document.getElementById('responseModel').textContent = data.model || '-';
                 document.getElementById('responseQuestion').textContent = data.question || '-';
                 document.getElementById('responseAnswer').textContent = data.answer || '-';
+
+                // Fix for source_lst - ensure it displays properly
+                const fileNamesElement = document.getElementById('responseFileNames');
+                fileNamesElement.textContent = data.source_lst || 'N/A';
+                fileNamesElement.style.maxHeight = '200px';
+                fileNamesElement.style.overflowY = 'auto';
+                fileNamesElement.style.whiteSpace = 'pre-wrap';
+
+                // Fix for documents - ensure it displays properly
+                const chunksElement = document.getElementById('responseChunks');
+                chunksElement.textContent = data.documents || 'N/A';
+                chunksElement.style.maxHeight = '300px';
+                chunksElement.style.overflowY = 'auto';
+                chunksElement.style.whiteSpace = 'pre-wrap';
+                chunksElement.style.wordBreak = 'break-word';
                 
                 const statusSpan = document.getElementById('responseStatus');
                 statusSpan.innerHTML = `<span class="status-badge status-${data.status}">${data.status || 'unknown'}</span>`;

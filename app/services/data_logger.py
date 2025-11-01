@@ -6,7 +6,7 @@ class DataLogger:
         pass
     
     # function to log evaluation data to CSV
-    def log_evaluation_data(self, eval_type, llm_response, document_names, data_chunks, message):
+    def log_evaluation_data(self, eval_type, llm_response, document_names, data_chunks, message, q_id, req_body):
         if eval_type not in ["baseline", "enhanced"]:
             print(f"Invalid evaluation type: {eval_type}. Must be 'baseline' or 'enhanced'.")
             return
@@ -22,7 +22,7 @@ class DataLogger:
             # Check if CSV file exists, if not create it with headers
             if not os.path.exists(csv_path):
                 headers = [
-                    "Question_ID", "System_Variant", "Question_Text", "Reference_Answer",
+                    "Question_ID", "System_Variant", "Change in requst body", "Question_Text", "Reference_Answer",
                     "System_Answer_Text", "Ground_Truth_Doc_Names", "Retrieved_Doc_Names_Ordered",
                     "Retrieved_Chunks_Text", "Human_Relevance_Score_1_5", "Human_Accuracy_Score_1_5",
                     "Human_Completeness_Score_1_5", "Human_Hallucination_Present", "Notes(Not mandatory)"
@@ -41,7 +41,7 @@ class DataLogger:
                     # If all else fails, recreate the file
                     print("CSV file appears corrupted, recreating...")
                     headers = [
-                        "Question_ID", "System_Variant", "Question_Text", "Reference_Answer",
+                        "Question_ID", "System_Variant","Change in requst body", "Question_Text", "Reference_Answer",
                         "System_Answer_Text", "Ground_Truth_Doc_Names", "Retrieved_Doc_Names_Ordered",
                         "Retrieved_Chunks_Text", "Human_Relevance_Score_1_5", "Human_Accuracy_Score_1_5",
                         "Human_Completeness_Score_1_5", "Human_Hallucination_Present", "Notes(Not mandatory)"
@@ -64,27 +64,30 @@ class DataLogger:
                 answer_text = str(llm_response)
 
             # Find the row where Question_Text = message & System_Variant = eval_type
-            mask = (df['Question_Text'] == message) & (df['System_Variant'] == eval_type)
+            mask = (df['Question_ID'] == q_id) & (df['System_Variant'] == eval_type)
             matching_rows = df[mask]
 
             if len(matching_rows) > 0:
                 # Update existing row
                 row_index = matching_rows.index[0]
+                
+                df.at[row_index, 'Question_Text'] = clean_text(message)
+                df.at[row_index, 'Change in request body'] = clean_text(str(req_body))
                 df.at[row_index, 'System_Answer_Text'] = clean_text(answer_text)
                 df.at[row_index, 'Retrieved_Doc_Names_Ordered'] = clean_text(" | ".join(document_names) if document_names else "")
-                df.at[row_index, 'Retrieved_Chunks_Text'] = clean_text("\n---CHUNK_SEPARATOR---\n".join(data_chunks) if data_chunks else "")
+                df.at[row_index, 'Retrieved_Chunks_Text'] = clean_text(" | ".join(data_chunks) if data_chunks else "")
                 print(f"Updated existing row {row_index} for {eval_type} evaluation")
             else:
                 # Create new row
                 new_row = {
-                    'Question_ID': '',  # Will be filled manually
+                    'Question_ID': q_id,
                     'System_Variant': eval_type,
                     'Question_Text': clean_text(message),
                     'Reference_Answer': '',  # Will be filled manually
                     'System_Answer_Text': clean_text(answer_text),
                     'Ground_Truth_Doc_Names': '',  # Will be filled manually
                     'Retrieved_Doc_Names_Ordered': clean_text(" | ".join(document_names) if document_names else ""),
-                    'Retrieved_Chunks_Text': clean_text("\n---CHUNK_SEPARATOR---\n".join(data_chunks) if data_chunks else ""),
+                    'Retrieved_Chunks_Text': clean_text(" | ".join(data_chunks) if data_chunks else ""),
                     'Human_Relevance_Score_1_5': '',  # Will be filled manually
                     'Human_Accuracy_Score_1_5': '',  # Will be filled manually
                     'Human_Completeness_Score_1_5': '',  # Will be filled manually

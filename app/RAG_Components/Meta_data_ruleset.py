@@ -32,7 +32,6 @@ class MetadataRuleset:
     
     def _check_academic_rules(self, doc_metadata: Dict, student: StudentQueryRequest) -> bool:
         """Check all rules for academic documents"""
-        print(f"=== ACADEMIC DOCUMENT RULES ===")
         
         # Rule 1: Course code must be in student's course codes
         if not self._check_academic_course_code_rule(doc_metadata, student):
@@ -68,13 +67,11 @@ class MetadataRuleset:
         if not self._check_academic_faculty_rule(doc_metadata, student):
             print(f"❌ Academic Document REJECTED by Faculty Rule")
             return False
-        
         print(f"✅ Academic Document PASSED all filtering rules")
         return True
     
     def _check_non_academic_rules(self, doc_metadata: Dict, student: StudentQueryRequest) -> bool:
         """Check all rules for non-academic documents"""
-        print(f"=== NON-ACADEMIC DOCUMENT RULES ===")
         
         # Rule 1: Validity check
         if not self._check_non_academic_validity_rule(doc_metadata):

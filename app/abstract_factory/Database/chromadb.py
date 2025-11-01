@@ -165,10 +165,6 @@ class ChromaDB(VectorStore):
                 print(f"Error extracting original academic chunks: {e}")
                 ext_docs = []
                 ext_doc_names = []
-            
-            print(f"📋 Extracted {len(ext_docs)} original academic chunks with document names")
-            for index, item in enumerate(ext_docs):
-                print(f"📋 {ext_doc_names[index]}:::::: {item}")
 
 
             return final_academic_chunks, final_non_academic_chunks, ext_docs, ext_doc_names

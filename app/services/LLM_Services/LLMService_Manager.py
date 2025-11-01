@@ -133,11 +133,11 @@ NON-ACADEMIC CONTEXT (Priority Ordered):
 {non_academic_context if non_academic_context.strip() else "No administrative information found."}
 
 INSTRUCTIONS:
-- Use ONLY the information provided in above ACADEMIC CONTEXT & NON-ACADEMIC CONTEXT. If necessary information is missing, respond with "Database do not have sufficient information. Please contact the university administration for further assistance."
+- Use ONLY the information provided in above ACADEMIC CONTEXT & NON-ACADEMIC CONTEXT. If necessary information is missing, respond with what is asking is not mentioned in the information sources related to the student.
 - Always respond in JSON format with 'answer' and 'status' fields. 
 - Make sure 'answer' is a single string, not a list or array.
 - Never make up answers or use external knowledge
-- If the answer is not in the provided context, respond with "Database do not have sufficient information. Please contact the university administration for further assistance."
+- If the answer is not in the provided context, respond with "The information you are asking is not mentioned in the information sources related to the student."
 - The non-academic context may show chunks annotated like [SCORE: 112.5]. Higher SCORE means higher priority (ontology relevance + freshness).
 - NEVER invent or adjust any SCORE values. Only use scores exactly as shown. If no scores appear, ignore this rule.
 - When multiple chunks give conflicting statements about the SAME subject:
@@ -145,9 +145,9 @@ INSTRUCTIONS:
   2. If SCORES are identical, prefer the one explicitly stating it is newer (latest dates / later upload_date wording).
   3. If still tied, mention BOTH and mark the answer as "partial" (status = "partial").
 - Do not mix older and newer directives unless tie cannot be resolved.
-- If information is missing or unclear, say so.
+- If information is missing or unclear, say so (be precise when answering).
 - Be direct and specific.
-- Course codes like "INTE 12553": INTE=department, 1=year, 2=semester, 3=credits.
+- Course codes like "INTE 12553": INTE=domain, 1=year, 2=semester, 3=credits.
 
 QUESTION: {question}
 
@@ -245,6 +245,88 @@ Respond in JSON format:
                     "error": llm_response.get("error", "Unknown error")
                 }
                 
+        except Exception as e:
+            return {
+                "success": False,
+                "answer": "I apologize, but I encountered an unexpected error. Please try again later.",
+                "status": "error",
+                "error": str(e)
+            }
+            
+    def no_relevant_documents_response(
+        self, 
+        question: str, 
+        studentMetadata: StudentQueryRequest
+    ) -> Dict[str, Any]:
+        """
+        Generate a response when no relevant documents are found.
+        
+        Args:
+            question: The student's question
+            studentMetadata: Student metadata and context
+            
+        Returns:
+            Dict containing the formatted response
+        """
+        
+        prompt = f"""You are a university academic advisor. A student has asked the following question:
+QUESTION: {question}
+STUDENT INFO:
+• **Batch**: {studentMetadata.batch}
+• **Department**: {studentMetadata.department}
+• **Degree Program**: {studentMetadata.degree_program}
+• **Faculty**: {studentMetadata.faculty}
+• **Current Academic Year**: {studentMetadata.current_year}
+• **Current Semester**: {studentMetadata.current_sem}
+• **Specialization**: {studentMetadata.specialization}
+INSTRUCTIONS:
+- The database does not have sufficient information to answer the question.
+- Respond according to the instructions, mentioning there is no information related to the question in the database which is relevant to the student.
+- Only if the question is about administrative information, suggest contacting the university administration for further assistance.
+- Do not make up answers or use external knowledge. This is only to inform the student about the lack of information.
+Respond only following JSON format:
+        {{"answer": "your response here", "status": "insufficient"}}"""
+        
+        try:
+            # Get response from LLM
+            llm_response = self.llm_generator.GenerateResponse(prompt)
+            # check response format
+            answer = "No relevant documents found for your query. The database might be empty or no documents match your criteria."
+            status = "insufficient"
+            if llm_response.get("success", True):
+                response_data = llm_response.get("response", llm_response)
+                
+                
+                if isinstance(response_data, dict):
+                    if "answer" in response_data and "status" in response_data:
+                        answer = response_data.get("answer", str(response_data))
+                        status = response_data.get("status", "insufficient")
+
+                        return {
+                            "success": True,
+                            "answer": answer,
+                            "status": status,
+                            "model": llm_response.get("model", "gpt-3.5-turbo"),
+                            "usage": llm_response.get("usage", {})
+                        }
+                    else:
+                        return {
+                            "success": False,
+                            "answer": answer,
+                            "status": status,
+                            "model": llm_response.get("model", "gpt-3.5-turbo"),
+                            "usage": llm_response.get("usage", {})
+                        }
+                
+            else:
+                return {
+                    "success": False,
+                    "answer": answer,
+                    "status": status,
+                    "model": llm_response.get("model", "gpt-3.5-turbo"),
+                    "usage": llm_response.get("usage", {})
+                }
+
         except Exception as e:
             return {
                 "success": False,
